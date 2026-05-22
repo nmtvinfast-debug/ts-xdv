@@ -1,0 +1,13 @@
+name: numbered_sheet_app
+description: Numbered music sheet app (VN style) - MVP
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true

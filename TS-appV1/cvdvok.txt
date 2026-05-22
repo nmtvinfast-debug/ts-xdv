@@ -1,0 +1,1278 @@
+import 'dart:convert';
+import 'dart:io';
+import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:excel/excel.dart' hide Border; 
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
+import 'package:url_launcher/url_launcher.dart'; 
+import 'package:archive/archive.dart';
+
+import '../models/auth_models.dart';
+import '../services/api_service.dart';
+import 'login_screen.dart';
+
+class JobItem {
+  final codeCtrl = TextEditingController(); 
+  final nameCtrl = TextEditingController(); 
+  final hoursCtrl = TextEditingController(text: '1'); 
+  final priceCtrl = TextEditingController(text: '0');
+  final discountCtrl = TextEditingController(text: '0'); 
+  final vatCtrl = TextEditingController(text: '8'); 
+  final noteCtrl = TextEditingController(); 
+  
+  String paymentMethod = 'C';
+
+  double get qty => double.tryParse(hoursCtrl.text) ?? 0;
+  double get price => double.tryParse(priceCtrl.text.replaceAll(',', '')) ?? 0;
+  double get discount => double.tryParse(discountCtrl.text.replaceAll(',', '')) ?? 0;
+  double get vatRate => double.tryParse(vatCtrl.text) ?? 0;
+  double get totalBeforeDiscount => qty * price;
+  
+  double get totalAfterDiscount { 
+    double after = totalBeforeDiscount - discount; 
+    return after > 0 ? after : 0; 
+  }
+  
+  double get vatAmount => totalAfterDiscount * (vatRate / 100);
+  double get totalWithVat => totalAfterDiscount + vatAmount;
+  
+  void dispose() { 
+    codeCtrl.dispose();
+    nameCtrl.dispose(); 
+    hoursCtrl.dispose(); 
+    priceCtrl.dispose(); 
+    discountCtrl.dispose(); 
+    vatCtrl.dispose(); 
+    noteCtrl.dispose(); 
+  }
+}
+
+class PartItem {
+  final codeCtrl = TextEditingController(); 
+  final nameCtrl = TextEditingController(); 
+  final qtyCtrl = TextEditingController(text: '1');
+  final priceCtrl = TextEditingController(text: '0'); 
+  final discountCtrl = TextEditingController(text: '0'); 
+  final vatCtrl = TextEditingController(text: '8'); 
+  final noteCtrl = TextEditingController();
+
+  String paymentMethod = 'C';
+
+  double get qty => double.tryParse(qtyCtrl.text) ?? 0;
+  double get price => double.tryParse(priceCtrl.text.replaceAll(',', '')) ?? 0;
+  double get discount => double.tryParse(discountCtrl.text.replaceAll(',', '')) ?? 0;
+  double get vatRate => double.tryParse(vatCtrl.text) ?? 0;
+  double get totalBeforeDiscount => qty * price;
+  
+  double get totalAfterDiscount { 
+    double after = totalBeforeDiscount - discount; 
+    return after > 0 ? after : 0; 
+  }
+  
+  double get vatAmount => totalAfterDiscount * (vatRate / 100);
+  double get totalWithVat => totalAfterDiscount + vatAmount;
+
+  void dispose() { 
+    codeCtrl.dispose(); 
+    nameCtrl.dispose(); 
+    qtyCtrl.dispose(); 
+    priceCtrl.dispose(); 
+    discountCtrl.dispose(); 
+    vatCtrl.dispose(); 
+    noteCtrl.dispose(); 
+  }
+}
+
+class CvdvDashboardScreen extends StatefulWidget {
+  const CvdvDashboardScreen({super.key, required this.login});
+  final LoginResult login;
+
+  @override
+  State<CvdvDashboardScreen> createState() => _CvdvDashboardScreenState();
+}
+
+class _CvdvDashboardScreenState extends State<CvdvDashboardScreen> {
+  late final ApiService api;
+  bool loading = false;
+  List<WorkOrderItem> orders = [];
+  List<BookingItem> bookings = [];
+  WorkOrderItem? selectedOrder;
+
+  List<JobItem> currentJobs = [];
+  List<PartItem> currentParts = [];
+  final urgentNotesCtrl = TextEditingController(); 
+
+  final customerPayCtrl = TextEditingController(text: '0');
+  final insurancePayCtrl = TextEditingController(text: '0');
+  final vinfastPayCtrl = TextEditingController(text: '0');
+  final debtCtrl = TextEditingController(text: '0');
+
+  String _selectedFilter = 'XE ĐANG CHỜ XỬ LÝ & BÁO GIÁ';
+  final List<String> _filters = [
+    'XE ĐANG CHỜ XỬ LÝ & BÁO GIÁ',
+    'XE ĐANG TRONG QUÁ TRÌNH SỬA',
+    'XE ĐÃ RA XƯỞNG - HOÀN THÀNH',
+    'XE ĐÃ RA XƯỞNG - THIẾU PT'
+  ];
+
+  final List<String> paymentOptions = ['C', 'I', 'W'];
+
+  @override
+  void initState() { 
+    super.initState(); 
+    api = ApiService(baseUrl: widget.login.baseUrl); 
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadBoard()); 
+  }
+
+  @override
+  void dispose() { 
+    _clearFormsRaw(); 
+    urgentNotesCtrl.dispose(); 
+    customerPayCtrl.dispose();
+    insurancePayCtrl.dispose();
+    vinfastPayCtrl.dispose();
+    debtCtrl.dispose();
+    super.dispose(); 
+  }
+
+  void _clearFormsRaw() {
+    for (var j in currentJobs) { j.dispose(); } 
+    for (var p in currentParts) { p.dispose(); } 
+    currentJobs.clear(); 
+    currentParts.clear(); 
+    urgentNotesCtrl.clear();
+    customerPayCtrl.text = '0';
+    insurancePayCtrl.text = '0';
+    vinfastPayCtrl.text = '0';
+    debtCtrl.text = '0';
+  }
+
+  Future<void> _loadBoard() async {
+    setState(() => loading = true);
+    try {
+      final all = await api.fetchBoard(widget.login.token);
+      final bk = await api.fetchBookings(widget.login.token);
+      
+      setState(() {
+        orders = all.where((e) => e.cvdvUsername == widget.login.userName).toList();
+        bookings = bk;
+        if (selectedOrder != null) {
+          try { selectedOrder = orders.firstWhere((o) => o.id == selectedOrder!.id); } 
+          catch (e) { selectedOrder = null; }
+        }
+      });
+    } catch (e) {
+      debugPrint('Lỗi load board: ${e.toString()}');
+    } finally { 
+      setState(() => loading = false); 
+    }
+  }
+
+  List<WorkOrderItem> get filteredOrders {
+    return orders.where((o) {
+      if (_selectedFilter == 'XE ĐANG CHỜ XỬ LÝ & BÁO GIÁ') {
+        return ['XE_VAO_XUONG', 'CHO_BAO_GIA', 'CHO_KH_DUYET', 'CHO_CVDV_CHOT', 'CHO_QUYET_TOAN', 'DA_THANH_TOAN'].contains(o.status);
+      } else if (_selectedFilter == 'XE ĐANG TRONG QUÁ TRÌNH SỬA') {
+        return ['CHO_PHAN_CONG', 'CHO_SUA_CHUA', 'DANG_SUA', 'DUNG_SUA', 'CHO_QD_KIEM_TRA'].contains(o.status);
+      } else if (_selectedFilter == 'XE ĐÃ RA XƯỞNG - HOÀN THÀNH') {
+        return o.status == 'DA_RA_CONG' || o.status == 'XE_RA_XUONG';
+      } else if (_selectedFilter == 'XE ĐÃ RA XƯỞNG - THIẾU PT') {
+        return o.status == 'DA_RA_CONG_THIEU_PT'; 
+      }
+      return true;
+    }).toList();
+  }
+
+  String _calculateSLA(DateTime? timeIn) {
+    if (timeIn == null) return 'Chưa rõ';
+    final diff = DateTime.now().difference(timeIn);
+    if (diff.inDays > 0) return '${diff.inDays} ngày ${diff.inHours % 24} giờ';
+    if (diff.inHours > 0) return '${diff.inHours} giờ ${diff.inMinutes % 60} phút';
+    return '${diff.inMinutes} phút';
+  }
+
+  Future<void> _handleLinkRequest(WorkOrderItem order, bool approve) async {
+    setState(() => loading = true);
+    try {
+      await api.updateRepairOrder(token: widget.login.token, id: order.id, status: order.status, linkedCustomer: approve ? order.linkRequestedBy : '', linkRequestedBy: '');
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(approve ? 'Đã cấp quyền cho Khách hàng' : 'Đã từ chối cấp quyền'), backgroundColor: approve ? Colors.green : Colors.red));
+      await _loadBoard();
+    } catch(e) {} finally { setState(() => loading = false); }
+  }
+
+  Future<void> _makePhoneCall(String phoneNumber) async {
+    if (phoneNumber.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Khách hàng chưa cung cấp số điện thoại!'))); 
+      return;
+    }
+    final Uri launchUri = Uri(scheme: 'tel', path: phoneNumber);
+    if (await canLaunchUrl(launchUri)) { await launchUrl(launchUri); } 
+    else { if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Thiết bị không hỗ trợ gọi điện.'))); }
+  }
+
+  void _openChatDialog() {
+    if (selectedOrder == null) return;
+    final msgCtrl = TextEditingController();
+    List<dynamic> logs = [];
+    try { if (selectedOrder!.chatLogs != null && selectedOrder!.chatLogs.toString() != '[]') { logs = (selectedOrder!.chatLogs is String) ? jsonDecode(selectedOrder!.chatLogs) : List.from(selectedOrder!.chatLogs); } } catch (_) {}
+
+    showDialog(
+      context: context, 
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          return AlertDialog(
+            title: Text('Trao đổi Khách Hàng - RO: ${selectedOrder!.roCode}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
+            content: SizedBox(
+              width: 500, height: 400, 
+              child: Column(
+                children: [
+                  Expanded(
+                    child: Container(
+                      decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(12)), 
+                      child: ListView.builder(
+                        padding: const EdgeInsets.all(16), itemCount: logs.length, 
+                        itemBuilder: (_, i) { 
+                          bool isMe = logs[i]['sender'] == widget.login.userName; 
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 12), alignment: isMe ? Alignment.centerRight : Alignment.centerLeft, 
+                            child: Container(
+                              padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: isMe ? Colors.blue[100] : Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey[300]!)), 
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start, 
+                                children: [
+                                  Text('${logs[i]['sender']} (${logs[i]['role']})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.blueGrey)), 
+                                  const SizedBox(height: 4), Text(logs[i]['msg']), const SizedBox(height: 4), Text(logs[i]['time'].toString().substring(11, 16), style: const TextStyle(fontSize: 10, color: Colors.grey))
+                                ]
+                              )
+                            )
+                          ); 
+                        }
+                      )
+                    )
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(child: TextField(controller: msgCtrl, decoration: const InputDecoration(hintText: 'Nhập tin nhắn để KH nhận được...', border: OutlineInputBorder()))), const SizedBox(width: 8),
+                      IconButton(
+                        icon: const Icon(Icons.send, color: Colors.blue), 
+                        onPressed: () async { 
+                          if (msgCtrl.text.trim().isEmpty) return; 
+                          logs.add({'sender': widget.login.userName, 'role': 'CVDV', 'msg': msgCtrl.text.trim(), 'time': DateTime.now().toIso8601String()}); msgCtrl.clear(); selectedOrder!.chatLogs = jsonEncode(logs); setDialogState(() {}); await api.updateRepairOrder(token: widget.login.token, id: selectedOrder!.id, status: selectedOrder!.status, chatLogs: jsonEncode(logs)); _loadBoard(); 
+                        }
+                      )
+                    ]
+                  )
+                ]
+              )
+            ),
+            actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Đóng'))],
+          );
+        }
+      )
+    );
+  }
+
+  void _showMissingPartsDialog() {
+    if (selectedOrder == null) return;
+    List<bool> checkedParts = List.filled(currentParts.length, false);
+    final noteCtrl = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          return AlertDialog(
+            title: const Text('Xác Nhận Xe Thiếu Phụ Tùng', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+            content: SizedBox(
+              width: 500,
+              child: Column(
+                mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Chọn các phụ tùng hiện đang bị thiếu/nợ Khách Hàng:'), const SizedBox(height: 16),
+                  if (currentParts.isEmpty) 
+                    const Padding(padding: EdgeInsets.all(8.0), child: Text('Danh sách phụ tùng đang trống.', style: TextStyle(fontStyle: FontStyle.italic)))
+                  else
+                    Container(
+                      constraints: const BoxConstraints(maxHeight: 250), decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(8)),
+                      child: ListView.builder(
+                        shrinkWrap: true, itemCount: currentParts.length,
+                        itemBuilder: (context, index) {
+                          return CheckboxListTile(
+                            title: Text(currentParts[index].nameCtrl.text), subtitle: Text('Mã: ${currentParts[index].codeCtrl.text} | SL: ${currentParts[index].qtyCtrl.text}'), value: checkedParts[index],
+                            onChanged: (bool? value) { setDialogState(() { checkedParts[index] = value ?? false; }); },
+                          );
+                        },
+                      ),
+                    ),
+                  const SizedBox(height: 16),
+                  TextField(controller: noteCtrl, maxLines: 2, decoration: const InputDecoration(labelText: 'Ghi chú thêm cho Kế toán (Tùy chọn)', border: OutlineInputBorder()))
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Hủy')),
+              FilledButton.icon(
+                onPressed: () {
+                  List<String> missingNames = [];
+                  for (int i = 0; i < currentParts.length; i++) { if (checkedParts[i]) missingNames.add(currentParts[i].nameCtrl.text); }
+                  String extraNote = "";
+                  if (missingNames.isNotEmpty) { extraNote = "[NỢ KHÁCH HÀNG] Thiếu: ${missingNames.join(', ')}."; } else { extraNote = "[KHÁCH LẤY XE VỀ, CHỜ PHỤ TÙNG]."; }
+                  if (noteCtrl.text.isNotEmpty) extraNote += " Ghi chú thêm: ${noteCtrl.text}";
+                  urgentNotesCtrl.text = urgentNotesCtrl.text.isEmpty ? extraNote : "${urgentNotesCtrl.text} | $extraNote";
+                  Navigator.pop(ctx);
+                  _updateRoStatus('CHO_QUYET_TOAN');
+                }, 
+                icon: const Icon(Icons.arrow_forward), style: FilledButton.styleFrom(backgroundColor: Colors.red), label: const Text('CHUYỂN KẾ TOÁN QUYẾT TOÁN')
+              )
+            ],
+          );
+        }
+      )
+    );
+  }
+
+  Future<void> _updateRoStatus(String targetStatus) async {
+    if (selectedOrder == null) return;
+    setState(() => loading = true);
+    try {
+      final jobsJson = jsonEncode(currentJobs.map((e) => {
+        'code': e.codeCtrl.text, 'name': e.nameCtrl.text, 'hours': e.qty, 'price': e.price, 'discount': e.discount, 'vat': e.vatRate, 'note': e.noteCtrl.text, 'total': e.totalWithVat, 'paymentMethod': e.paymentMethod
+      }).toList());
+
+      final partsJson = jsonEncode(currentParts.map((e) => {
+        'code': e.codeCtrl.text, 'name': e.nameCtrl.text, 'qty': e.qty, 'price': e.price, 'discount': e.discount, 'vat': e.vatRate, 'note': e.noteCtrl.text, 'total': e.totalWithVat, 'paymentMethod': e.paymentMethod
+      }).toList());
+
+      String finalNote = urgentNotesCtrl.text;
+      if (customerPayCtrl.text != '0' || insurancePayCtrl.text != '0' || vinfastPayCtrl.text != '0' || debtCtrl.text != '0') {
+          finalNote += " | Thanh toán: KH(${customerPayCtrl.text}), BH(${insurancePayCtrl.text}), VF(${vinfastPayCtrl.text}), Nợ(${debtCtrl.text})";
+      }
+
+      await api.updateRepairOrder(token: widget.login.token, id: selectedOrder!.id, status: targetStatus, jobs: jobsJson, parts: partsJson, statusNote: finalNote);
+      if (mounted) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã cập nhật dữ liệu thành công!'), backgroundColor: Colors.green)); }
+      await _loadBoard();
+    } catch (e) { 
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Lỗi: $e'), backgroundColor: Colors.red)); 
+    } finally { setState(() => loading = false); }
+  }
+
+  double _getTotalByPaymentMethod(String method) {
+      double jobSum = currentJobs.where((j) => j.paymentMethod == method).fold(0.0, (sum, item) => sum + item.totalAfterDiscount);
+      double partSum = currentParts.where((p) => p.paymentMethod == method).fold(0.0, (sum, item) => sum + item.totalAfterDiscount);
+      return jobSum + partSum;
+  }
+
+  double _getVatByPaymentMethod(String method) {
+      double jobVat = currentJobs.where((j) => j.paymentMethod == method).fold(0.0, (sum, item) => sum + item.vatAmount);
+      double partVat = currentParts.where((p) => p.paymentMethod == method).fold(0.0, (sum, item) => sum + item.vatAmount);
+      return jobVat + partVat;
+  }
+
+  double get subTotal => currentJobs.fold(0.0, (sum, item) => sum + item.totalAfterDiscount) + currentParts.fold(0.0, (sum, item) => sum + item.totalAfterDiscount);
+  double get totalVat => currentJobs.fold(0.0, (sum, item) => sum + item.vatAmount) + currentParts.fold(0.0, (sum, item) => sum + item.vatAmount);
+  double get grandTotal => subTotal + totalVat;
+  
+  String _formatVND(double value) {
+    return value.toStringAsFixed(0).replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},');
+  }
+
+  // =========================================================================
+  // UTILS XỬ LÝ CHUỖI VÀ XML 
+  // =========================================================================
+  String _decodeBytesToString(List<int> bytes) {
+    if (bytes.isEmpty) return '';
+    try {
+      if (bytes.length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE) {
+        StringBuffer sb = StringBuffer();
+        for (int i = 2; i < bytes.length - 1; i += 2) sb.writeCharCode(bytes[i] | (bytes[i + 1] << 8));
+        return sb.toString();
+      }
+      return utf8.decode(bytes, allowMalformed: true);
+    } catch (_) { return String.fromCharCodes(bytes); }
+  }
+
+  String _getXmlAttr(String attrs, String attrName) {
+      RegExp reg = RegExp(attrName + r'\s*=\s*"([^"]*)"');
+      var match = reg.firstMatch(attrs);
+      return match != null ? match.group(1) ?? '' : '';
+  }
+
+  double? _parseNumberStrict(String? raw) { 
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      String clean = raw.replaceAll(RegExp(r'[^\d.,\-]'), ''); 
+      if (clean.isEmpty || clean == '.' || clean == ',') return null; 
+      if (clean.contains(',') && !clean.contains('.')) {
+          if (clean.split(',').last.length <= 2) clean = clean.replaceAll(',', '.'); 
+          else clean = clean.replaceAll(',', ''); 
+      } else if (clean.contains('.') && clean.contains(',')) {
+         int dotIdx = clean.lastIndexOf('.');
+         int commaIdx = clean.lastIndexOf(',');
+         if (dotIdx > commaIdx) clean = clean.replaceAll(',', ''); 
+         else clean = clean.replaceAll('.', '').replaceAll(',', '.'); 
+      } else if (clean.contains('.')) {
+         if (clean.split('.').last.length == 3) clean = clean.replaceAll('.', ''); 
+      }
+      return double.tryParse(clean); 
+    } catch(_) { return null; }
+  }
+  
+  String _extractCellString(dynamic cell) {
+    if (cell == null) return '';
+    try {
+      dynamic val = cell;
+      try { if (cell.value == null) return ''; val = cell.value; } catch(_) {} 
+      String s = val.toString();
+      RegExp reg = RegExp(r'^[A-Za-z]+CellValue\((?:value:\s*)?(.*?)\)$', dotAll: true);
+      if (reg.hasMatch(s)) s = reg.firstMatch(s)?.group(1) ?? s;
+      if (s.startsWith('"') && s.endsWith('"') && s.length >= 2) s = s.substring(1, s.length - 1);
+      return s.replaceAll('\x00', '').trim();
+    } catch (_) { return ''; }
+  }
+
+  List<List<String>> _parseHtmlOrXmlTable(String content) {
+    if (content.isEmpty) return [];
+    List<List<String>> rows = [];
+    RegExp rowRegex = RegExp(r'<(?:tr|Row)(?:\s+[^>]*)?>(.*?)<\/(?:tr|Row)>', caseSensitive: false, dotAll: true);
+    for (var r in rowRegex.allMatches(content)) {
+        String rowHtml = r.group(1) ?? '';
+        List<String> cells = [];
+        RegExp cellRegex = RegExp(r'<(?:td|th|Cell)(?:\s+[^>]*)?>(.*?)<\/(?:td|th|Cell)>', caseSensitive: false, dotAll: true);
+        for (var c in cellRegex.allMatches(rowHtml)) {
+            String text = c.group(1) ?? '';
+            text = text.replaceAll(RegExp(r'<[^>]*>'), ' ').replaceAll('&nbsp;', ' ').trim().replaceAll(RegExp(r'\s+'), ' ');
+            cells.add(text);
+        }
+        if (cells.isNotEmpty && cells.any((e) => e.isNotEmpty)) rows.add(cells);
+    }
+    return rows;
+  }
+
+  List<List<String>> _parseCsvSimpleText(String content) {
+    if (content.isEmpty) return [];
+    content = content.replaceAll('\x00', '');
+    List<List<String>> rows = [];
+    List<String> lines = content.split(RegExp(r'\r\n|\n|\r'));
+    for (String line in lines) {
+        if (line.trim().isEmpty) continue;
+        int comma = line.split(',').length;
+        int semi = line.split(';').length;
+        int tab = line.split('\t').length;
+        String d = ',';
+        if (semi > comma && semi > tab) d = ';';
+        else if (tab > comma && tab > semi) d = '\t';
+        List<String> cells = line.split(d).map((e) {
+            String c = e.trim();
+            if (c.startsWith('"') && c.endsWith('"') && c.length >= 2) c = c.substring(1, c.length - 1);
+            return c.trim();
+        }).toList();
+        if (cells.isNotEmpty) rows.add(cells);
+    }
+    return rows;
+  }
+
+  // =========================================================================
+  // LUỒNG 1: XỬ LÝ IMPORT DÀNH RIÊNG CHO MISA
+  // =========================================================================
+  void _parseMisaLogic(List<List<String>> allRows) {
+    for (var rawRow in allRows) {
+      try {
+        if (rawRow.length < 2) continue;
+        List<String> cells = [];
+        for (var e in rawRow) {
+            String c = _extractCellString(e).replaceAll('\n', ' ').trim();
+            if (c.isNotEmpty && c.toLowerCase() != 'nan' && c.toLowerCase() != 'null') cells.add(c);
+        }
+        if (cells.length < 2) continue;
+        String fullRow = cells.join(' ').toLowerCase();
+
+        if (fullRow.contains('khách hàng thanh toán') || fullRow.contains('tổng chi phí') || fullRow.contains('bằng chữ') || fullRow.contains('người lập phiếu')) break; 
+        
+        if (fullRow.contains('số phiếu:') || fullRow.contains('biển số') || fullRow.contains('tên chủ xe') || fullRow.contains('địa chỉ') || fullRow.contains('điện thoại:') || fullRow.contains('người mang xe') || fullRow.contains('mst:') || fullRow.contains('số km') || fullRow.contains('yêu cầu khách hàng') || fullRow.contains('thời gian') || fullRow.contains('ngày') || fullRow.contains('tổng cộng') || fullRow.contains('tên phụ tùng') || fullRow.contains('mã phụ tùng') || fullRow == 'sơn' || fullRow == 'thuế ngoài' || fullRow == 'phụ tùng' || fullRow.contains('tổng tiền:') || fullRow.contains('nội dung công việc') || (fullRow.contains('bảo dưỡng') && cells.length < 3) || fullRow == 'công việc' || fullRow.contains('đơn giá') || fullRow.contains('thành tiền')) continue;
+
+        while (cells.isNotEmpty) {
+            String first = cells[0].trim();
+            if (first.length <= 2 && int.tryParse(first) != null) cells.removeAt(0); 
+            else if (first.toLowerCase() == 'stt') cells.removeAt(0);
+            else break;
+        }
+        if (cells.length < 2) continue;
+
+        int nameEndIdx = -1;
+        List<String> units = ['cái', 'bộ', 'lần', 'giờ', 'lít', 'chai', 'hộp', 'cuộn', 'mét', 'kg', 'chiếc', 'tuýp', 'thùng', 'c', 'i', 'cuốn', 'bình', 'ml', 'gram'];
+        for (int i = cells.length - 1; i >= 0; i--) {
+            String c = cells[i].toLowerCase();
+            if (units.contains(c)) continue;
+            String cleanForNum = c.replaceAll('%', '').replaceAll('đ', '').replaceAll('vnd', '').replaceAll(',', '').replaceAll('.', '').trim();
+            if (double.tryParse(cleanForNum) == null || RegExp(r'[a-zà-ỹA-ZÀ-Ỹ]').hasMatch(c)) { nameEndIdx = i + 1; break; }
+        }
+
+        if (nameEndIdx <= 0 || nameEndIdx >= cells.length) continue; 
+        List<String> textParts = cells.sublist(0, nameEndIdx);
+        while(textParts.isNotEmpty && units.contains(textParts.last.toLowerCase())) textParts.removeLast();
+        if (textParts.isEmpty) continue;
+
+        String code = ''; String name = '';
+        if (textParts.length > 1 && (textParts[0].contains(RegExp(r'[0-9]')) && textParts[0].length >= 3 || textParts[0].toUpperCase() == textParts[0] && !textParts[0].contains(' ') && textParts[0].length > 3 || textParts[0].contains('-') || textParts[0].contains('_'))) {
+            code = textParts[0]; name = textParts.sublist(1).join(' ').trim();
+        } else { name = textParts.join(' ').trim(); }
+        if (name.isEmpty || name.length < 2) continue;
+
+        List<String> finParts = cells.sublist(nameEndIdx);
+        List<double> largeNums = []; List<double> smallNums = []; List<double> pcts = [];
+        String httt = 'C';
+
+        for (String c in finParts) {
+            String cl = c.toLowerCase();
+            if (units.contains(cl)) continue;
+            if (['c', 'i', 'w'].contains(cl)) { httt = cl.toUpperCase(); continue; }
+
+            if (cl.contains('%')) {
+                double? p = double.tryParse(cl.replaceAll('%', '').replaceAll(',', '.'));
+                if (p != null) pcts.add(p);
+            } else {
+                double? val = double.tryParse(cl.replaceAll('đ', '').replaceAll('vnd', '').replaceAll(',', '').replaceAll('.', ''));
+                if (val != null) { if (val >= 1000) largeNums.add(val); else if (val >= 0) smallNums.add(val); }
+            }
+        }
+
+        if (largeNums.isEmpty) continue; 
+        double price = largeNums.first; double total = largeNums.last; double qty = 1; double vat = 8; double ck = 0;
+
+        bool isFree = pcts.contains(100.0);
+        if (isFree) {
+            total = 0; if (smallNums.isNotEmpty) qty = smallNums.first; ck = price * qty;
+        } else if (price > 0 && total > 0) {
+            bool isOne = false;
+            if ((price - total).abs() < 5) isOne = true;
+            for(double p in pcts) { if ((price * (1 - p/100) - total).abs() < 5) isOne = true; }
+            if (largeNums.length >= 3 && (price - largeNums[1] - total).abs() < 5) isOne = true;
+
+            if (isOne) { qty = 1; } else {
+                bool foundQty = false;
+                for (double n in smallNums) {
+                    if ((price * n - total).abs() < 5) { qty = n; foundQty = true; break; }
+                    for(double p in pcts) { if ((price * n * (1 - p/100) - total).abs() < 5) { qty = n; foundQty = true; break; } }
+                    if (largeNums.length >= 3 && (price * n - largeNums[1] - total).abs() < 5) { qty = n; foundQty = true; break; }
+                }
+                if (!foundQty && smallNums.isNotEmpty) qty = smallNums.first;
+            }
+        } else if (smallNums.isNotEmpty) { qty = smallNums.first; }
+
+        if (pcts.isNotEmpty) { if (pcts.last == 8 || pcts.last == 10) vat = pcts.last; }
+        if (!isFree) {
+            if (pcts.isNotEmpty) {
+               for(double p in pcts) { if (p != 8 && p != 10 && p != 100) { ck = price * qty * (p / 100); break; } }
+               if (ck == 0 && pcts.length >= 2 && pcts.first == 10) ck = price * qty * 0.1;
+            }
+            if (ck == 0 && largeNums.length >= 3 && (price * qty - largeNums[1] - total).abs() < 5) ck = largeNums[1]; 
+            else if (ck == 0 && total >= 0 && total < price * qty) ck = (price * qty) - total;
+        }
+
+        bool isJob = name.toLowerCase().contains('công') || name.toLowerCase().contains('thay') || name.toLowerCase().contains('sơn') || name.toLowerCase().contains('bảo dưỡng') || name.toLowerCase().contains('gò') || name.toLowerCase().contains('kiểm tra') || name.toLowerCase().contains('vệ sinh') || code.toUpperCase().contains('LABOR');
+
+        if (isJob) {
+             final job = JobItem(); job.codeCtrl.text = code; job.nameCtrl.text = name; job.hoursCtrl.text = qty.toStringAsFixed(1).replaceAll('.0',''); job.priceCtrl.text = price.toStringAsFixed(0); job.discountCtrl.text = ck.toStringAsFixed(0); job.vatCtrl.text = vat.toStringAsFixed(0); job.paymentMethod = httt; currentJobs.add(job);
+        } else {
+             final part = PartItem(); part.codeCtrl.text = code; part.nameCtrl.text = name; part.qtyCtrl.text = qty.toStringAsFixed(1).replaceAll('.0',''); part.priceCtrl.text = price.toStringAsFixed(0); part.discountCtrl.text = ck.toStringAsFixed(0); part.vatCtrl.text = vat.toStringAsFixed(0); part.paymentMethod = httt; currentParts.add(part);
+        }
+      } catch (e) { debugPrint('Lỗi dòng MISA: $e'); }
+    }
+  }
+
+  Future<void> _importMisa() async {
+    if (selectedOrder == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Vui lòng chọn 1 xe trước khi import MISA!'), backgroundColor: Colors.red));
+      return;
+    }
+    try {
+      FilePickerResult? result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['xlsx', 'xls', 'csv', 'html', 'xml']);
+      if (result != null) {
+        setState(() => loading = true);
+        var bytes = File(result.files.single.path!).readAsBytesSync(); 
+        _clearFormsRaw(); 
+        
+        List<List<String>> excelRows = [];
+        String fileContent = _decodeBytesToString(bytes);
+
+        bool isXmlParsed = false;
+        RegExp detailsRegExp = RegExp(r'<(Details\d*)\s+([^>]+)>');
+        if (detailsRegExp.hasMatch(fileContent)) {
+           for (var match in detailsRegExp.allMatches(fileContent)) {
+               String attrs = match.group(2) ?? '';
+               String code = _getXmlAttr(attrs, 'wps_xts_productid');
+               if (code.isEmpty) code = _getXmlAttr(attrs, 'Textbox140');
+               String name = _getXmlAttr(attrs, 'wps_xts_productdescription');
+               if (name.isEmpty) name = _getXmlAttr(attrs, 'Textbox142');
+               String qtyStr = _getXmlAttr(attrs, 'Textbox144').replaceAll(',', '.'); if (qtyStr.isEmpty) qtyStr = '1'; 
+               String priceStr = _getXmlAttr(attrs, 'wps_xts_totalamountbeforediscountValue');
+               if (priceStr.isEmpty) priceStr = _getXmlAttr(attrs, 'Textbox146');
+               if (priceStr.isEmpty) priceStr = _getXmlAttr(attrs, 'ac_xts_provinceidEntityName'); 
+               String discountStr = _getXmlAttr(attrs, 'wps_xts_discountpercentValue');
+               if (discountStr.isEmpty) discountStr = _getXmlAttr(attrs, 'wps_xts_discountpercentValue1');
+               String vatStr = _getXmlAttr(attrs, 'Textbox38'); if (vatStr.isEmpty) vatStr = _getXmlAttr(attrs, 'Textbox165');
+
+               if (name.isEmpty || priceStr.isEmpty) continue;
+               double price = double.tryParse(priceStr) ?? 0; double qty = double.tryParse(qtyStr) ?? 1;
+               double discount = 0;
+               if (discountStr.contains('%')) {
+                   double pct = double.tryParse(discountStr.replaceAll('%','')) ?? 0; discount = price * qty * (pct/100);
+               } else if (discountStr.isNotEmpty) discount = double.tryParse(discountStr) ?? 0;
+               double vat = double.tryParse(vatStr.replaceAll('%','')) ?? 8;
+
+               if (price > 0 || name.isNotEmpty) {
+                   bool isJob = name.toLowerCase().contains('công') || name.toLowerCase().contains('sơn') || name.toLowerCase().contains('bảo dưỡng') || name.toLowerCase().contains('thay') || name.toLowerCase().contains('gò') || name.toLowerCase().contains('vệ sinh') || code.toUpperCase().contains('LABOR');
+                   if (isJob) {
+                       final job = JobItem(); job.codeCtrl.text = code; job.nameCtrl.text = name; job.hoursCtrl.text = qty.toStringAsFixed(1).replaceAll('.0',''); job.priceCtrl.text = price.toStringAsFixed(0); job.discountCtrl.text = discount.toStringAsFixed(0); job.vatCtrl.text = vat.toStringAsFixed(0); currentJobs.add(job);
+                       isXmlParsed = true;
+                   } else {
+                       final part = PartItem(); part.codeCtrl.text = code; part.nameCtrl.text = name; part.qtyCtrl.text = qty.toStringAsFixed(1).replaceAll('.0',''); part.priceCtrl.text = price.toStringAsFixed(0); part.discountCtrl.text = discount.toStringAsFixed(0); part.vatCtrl.text = vat.toStringAsFixed(0); currentParts.add(part);
+                       isXmlParsed = true;
+                   }
+               }
+           }
+        }
+
+        if (!isXmlParsed) {
+            bool isExcel = bytes.length > 2 && bytes[0] == 0x50 && bytes[1] == 0x4B;
+            if (isExcel) {
+                try {
+                  var excel = Excel.decodeBytes(bytes);
+                  for (var table in excel.tables.values) {
+                     for(var row in table.rows) {
+                        excelRows.add(row.map((e) => e?.value?.toString() ?? '').toList());
+                     }
+                  }
+                } catch (_) { }
+            }
+            if (excelRows.isEmpty) {
+                if (fileContent.toLowerCase().contains('<table') || fileContent.toLowerCase().contains('<?xml')) {
+                    excelRows = _parseHtmlOrXmlTable(fileContent);
+                } else {
+                    excelRows = _parseCsvSimpleText(fileContent);
+                }
+            }
+            _parseMisaLogic(excelRows);
+        }
+
+        if (mounted) {
+           if (currentJobs.isEmpty && currentParts.isEmpty) {
+               showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text('⚠️ KHÔNG TÌM THẤY DỮ LIỆU MISA', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)), content: const Text("App không thể trích xuất dữ liệu từ file MISA này."), actions: [FilledButton(onPressed: ()=>Navigator.pop(ctx), child: const Text('Đã Hiểu'))]));
+           } else {
+               setState(() {}); 
+               ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Import MISA Thành Công! Đã bốc ${currentJobs.length} CV và ${currentParts.length} PT.'), backgroundColor: Colors.green));
+           }
+        }
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Lỗi: File đang bị mở!'), backgroundColor: Colors.red));
+    } finally { setState(() => loading = false); }
+  }
+
+  // =========================================================================
+  // LUỒNG 2: XỬ LÝ IMPORT DÀNH RIÊNG CHO DMS (ĐỌC BẢNG TRONG DOCX)
+  // =========================================================================
+  Future<void> _importDms() async {
+    if (selectedOrder == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Vui lòng chọn 1 xe trước khi import DMS!'), backgroundColor: Colors.red));
+      return;
+    }
+    
+    try {
+      FilePickerResult? result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['docx', 'xml', 'csv', 'xlsx', 'xls']);
+      if (result != null) {
+        setState(() => loading = true);
+        var bytes = File(result.files.single.path!).readAsBytesSync(); 
+        String extension = result.files.single.extension?.toLowerCase() ?? '';
+        _clearFormsRaw(); 
+        
+        bool isParsed = false;
+        
+        if (extension == 'docx') {
+             List<List<String>> allRows = [];
+             try {
+                final archive = ZipDecoder().decodeBytes(bytes);
+                ArchiveFile? docXmlFile;
+                for (final file in archive) {
+                    if (file.name == 'word/document.xml') {
+                        docXmlFile = file;
+                        break;
+                    }
+                }
+
+                if (docXmlFile != null) {
+                    final content = utf8.decode(docXmlFile.content as List<int>);
+                    RegExp trRegex = RegExp(r'<w:tr(?:[^>]*)>(.*?)</w:tr>');
+                    for (var trMatch in trRegex.allMatches(content)) {
+                        String trContent = trMatch.group(1) ?? '';
+                        List<String> rowCells = [];
+                        RegExp tcRegex = RegExp(r'<w:tc(?:[^>]*)>(.*?)</w:tc>');
+                        for (var tcMatch in tcRegex.allMatches(trContent)) {
+                             String tcContent = tcMatch.group(1) ?? '';
+                             RegExp tRegex = RegExp(r'<w:t(?:[^>]*)>([^<]*)</w:t>');
+                             String cellText = tRegex.allMatches(tcContent).map((m) => m.group(1) ?? '').join(' ').trim();
+                             rowCells.add(cellText); 
+                        }
+                        if (rowCells.isNotEmpty) allRows.add(rowCells);
+                    }
+                }
+             } catch (e) { debugPrint("Docx Error: $e"); }
+
+             for (var rowCells in allRows) {
+                 if (rowCells.length < 5) continue; 
+                 
+                 String joinedRow = rowCells.join(' ').toLowerCase();
+                 // CHẶN RÁC
+                 if (joinedRow.contains('khách hàng thanh toán') || joinedRow.contains('bằng chữ') || joinedRow.contains('người lập phiếu')) {
+                     break; 
+                 }
+                 if (joinedRow.contains('tổng cộng') || joinedRow.contains('stt') || joinedRow.contains('thành tiền')) continue;
+                 
+                 String code = ''; String name = '';
+                 int startIdx = 1; 
+                 
+                 if (rowCells[1].length > 3 && rowCells[1].toUpperCase() == rowCells[1]) {
+                     code = rowCells[1].trim(); name = rowCells[2].trim(); startIdx = 3;
+                 } else if (rowCells[1].length > 5) {
+                     name = rowCells[1].trim(); startIdx = 2;
+                 } else {
+                      for (int i=1; i<4; i++) {
+                          if(rowCells[i].length > 5 && !rowCells[i].contains(RegExp(r'[0-9]'))) {
+                              name = rowCells[i]; startIdx = i+1; break;
+                          }
+                      }
+                 }
+
+                 if (name.isEmpty || name.toLowerCase() == 'nan') continue;
+
+                 List<double> numbers = [];
+                 List<double> pcts = [];
+                 
+                 // Lấy HTTT từ cột cuối cùng (tránh quét trong text)
+                 String httt = 'C';
+                 String lastCell = rowCells.last.trim().toUpperCase();
+                 if (['C', 'I', 'W'].contains(lastCell)) {
+                      httt = lastCell;
+                 }
+
+                 for (int i = startIdx; i < rowCells.length; i++) {
+                     String cell = rowCells[i].toLowerCase().trim();
+                     if (cell.isEmpty) continue;
+                     
+                     if (['c', 'i', 'w'].contains(cell)) continue;
+                     
+                     if (cell.contains('%')) {
+                         double? p = double.tryParse(cell.replaceAll('%','').replaceAll(',','.'));
+                         if (p != null) pcts.add(p);
+                     } else {
+                         double? val = _parseNumberStrict(cell);
+                         if (val != null) numbers.add(val);
+                     }
+                 }
+
+                 List<double> largeNums = numbers.where((n) => n >= 1000).toList();
+                 List<double> smallNums = numbers.where((n) => n > 0 && n < 1000).toList();
+
+                 if (largeNums.isNotEmpty) {
+                      double price = largeNums.first;
+                      double total = largeNums.length > 1 ? largeNums.last : price;
+                      double qty = 1;
+                      double vat = 8;
+                      double discount = 0;
+                      
+                      if (smallNums.isNotEmpty) qty = smallNums.first;
+                      
+                      if (pcts.contains(100.0)) { discount = price * qty; total = 0; }
+                      else if (price * qty > total && total > 0) { discount = (price * qty) - total; }
+                      
+                      if (pcts.contains(10.0)) vat = 10;
+                      else if (pcts.contains(8.0)) vat = 8;
+
+                      bool isJob = name.toLowerCase().contains('công') || name.toLowerCase().contains('thay') || name.toLowerCase().contains('sơn') || name.toLowerCase().contains('bảo dưỡng') || name.toLowerCase().contains('kiểm tra') || name.toLowerCase().contains('vệ sinh') || code.toUpperCase().contains('LABOR') || code.toUpperCase().contains('ALL');
+
+                      bool isDuplicate = currentJobs.any((j) => j.nameCtrl.text == name && j.priceCtrl.text == price.toStringAsFixed(0)) || currentParts.any((p) => p.nameCtrl.text == name && p.priceCtrl.text == price.toStringAsFixed(0));
+                        
+                      if (!isDuplicate) {
+                          if (isJob) {
+                              final job = JobItem(); job.codeCtrl.text = code; job.nameCtrl.text = name; job.hoursCtrl.text = qty.toStringAsFixed(1).replaceAll('.0',''); job.priceCtrl.text = price.toStringAsFixed(0); job.discountCtrl.text = discount.toStringAsFixed(0); job.vatCtrl.text = vat.toStringAsFixed(0); job.paymentMethod = httt; currentJobs.add(job);
+                              isParsed = true;
+                          } else {
+                              final part = PartItem(); part.codeCtrl.text = code; part.nameCtrl.text = name; part.qtyCtrl.text = qty.toStringAsFixed(1).replaceAll('.0',''); part.priceCtrl.text = price.toStringAsFixed(0); part.discountCtrl.text = discount.toStringAsFixed(0); part.vatCtrl.text = vat.toStringAsFixed(0); part.paymentMethod = httt; currentParts.add(part);
+                              isParsed = true;
+                          }
+                      }
+                 }
+             }
+        } 
+        else {
+             // Fallback cho XML Data Feed
+             String fileContent = _decodeBytesToString(bytes);
+             RegExp detailsRegExp = RegExp(r'<(Details\d*)\s+([^>]+)>');
+             if (detailsRegExp.hasMatch(fileContent)) {
+                 for (var match in detailsRegExp.allMatches(fileContent)) {
+                     String attrs = match.group(2) ?? '';
+                     String code = _getXmlAttr(attrs, 'wps_xts_productid');
+                     if (code.isEmpty) code = _getXmlAttr(attrs, 'Textbox140');
+                     String name = _getXmlAttr(attrs, 'wps_xts_productdescription');
+                     if (name.isEmpty) name = _getXmlAttr(attrs, 'Textbox142');
+                     String qtyStr = _getXmlAttr(attrs, 'Textbox144').replaceAll(',', '.'); if (qtyStr.isEmpty) qtyStr = '1'; 
+                     String priceStr = _getXmlAttr(attrs, 'wps_xts_totalamountbeforediscountValue');
+                     if (priceStr.isEmpty) priceStr = _getXmlAttr(attrs, 'Textbox146');
+                     if (priceStr.isEmpty) priceStr = _getXmlAttr(attrs, 'ac_xts_provinceidEntityName'); 
+                     String discountStr = _getXmlAttr(attrs, 'wps_xts_discountpercentValue');
+                     if (discountStr.isEmpty) discountStr = _getXmlAttr(attrs, 'wps_xts_discountpercentValue1');
+                     String vatStr = _getXmlAttr(attrs, 'Textbox38'); if (vatStr.isEmpty) vatStr = _getXmlAttr(attrs, 'Textbox165');
+
+                     if (name.isEmpty || priceStr.isEmpty) continue;
+                     double price = double.tryParse(priceStr) ?? 0; double qty = double.tryParse(qtyStr) ?? 1;
+                     double discount = 0;
+                     if (discountStr.contains('%')) {
+                         double pct = double.tryParse(discountStr.replaceAll('%','')) ?? 0; discount = price * qty * (pct/100);
+                     } else if (discountStr.isNotEmpty) discount = double.tryParse(discountStr) ?? 0;
+                     double vat = double.tryParse(vatStr.replaceAll('%','')) ?? 8;
+
+                     if (price > 0 || name.isNotEmpty) {
+                         bool isJob = name.toLowerCase().contains('công') || name.toLowerCase().contains('sơn') || name.toLowerCase().contains('bảo dưỡng') || name.toLowerCase().contains('thay') || name.toLowerCase().contains('gò') || name.toLowerCase().contains('vệ sinh') || code.toUpperCase().contains('LABOR');
+                         if (isJob) {
+                             final job = JobItem(); job.codeCtrl.text = code; job.nameCtrl.text = name; job.hoursCtrl.text = qty.toStringAsFixed(1).replaceAll('.0',''); job.priceCtrl.text = price.toStringAsFixed(0); job.discountCtrl.text = discount.toStringAsFixed(0); job.vatCtrl.text = vat.toStringAsFixed(0); currentJobs.add(job);
+                             isParsed = true;
+                         } else {
+                             final part = PartItem(); part.codeCtrl.text = code; part.nameCtrl.text = name; part.qtyCtrl.text = qty.toStringAsFixed(1).replaceAll('.0',''); part.priceCtrl.text = price.toStringAsFixed(0); part.discountCtrl.text = discount.toStringAsFixed(0); part.vatCtrl.text = vat.toStringAsFixed(0); currentParts.add(part);
+                             isParsed = true;
+                         }
+                     }
+                 }
+             }
+        }
+
+        if (mounted) {
+           if (!isParsed) {
+               showDialog(context: context, builder: (ctx) => AlertDialog(
+                   title: const Text('⚠️ KHÔNG ĐỌC ĐƯỢC DỮ LIỆU DMS', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)), 
+                   content: const SizedBox(
+                          width: 400,
+                          child: Text("Hệ thống DMS xuất dữ liệu ẩn không cho phép đọc qua Excel.\n\n👉 GIẢI PHÁP 100%:\n1. Mở phần mềm DMS, khi bấm xuất báo giá, hãy chọn ĐỊNH DẠNG WORD (.docx) thay vì Excel.\n2. Bấm Import DMS và chọn file Word đó.\nHoặc xuất định dạng XML (Data Feed).", style: TextStyle(fontSize: 14, height: 1.5)),
+                      ),
+                   actions: [FilledButton(onPressed: ()=>Navigator.pop(ctx), child: const Text('Đã Hiểu'))]));
+           } else {
+               setState(() {}); 
+               ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Import DMS Thành Công! Đã bốc ${currentJobs.length} CV và ${currentParts.length} PT.'), backgroundColor: Colors.green));
+           }
+        }
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Lỗi: Hãy chắc chắn bạn đã chọn file Word (.docx) hoặc file đang bị mở!'), backgroundColor: Colors.red));
+    } finally { setState(() => loading = false); }
+  }
+
+
+  Future<void> _exportPdfDocument(String docTitle) async {
+    if (selectedOrder == null) return;
+    final font = await PdfGoogleFonts.robotoRegular(); final fontBold = await PdfGoogleFonts.robotoBold(); final pdf = pw.Document();
+    
+    pdf.addPage(
+      pw.Page(
+        pageFormat: PdfPageFormat.a4, 
+        build: (pw.Context context) {
+          return pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start, 
+            children: [
+              pw.Center(child: pw.Text('TS-XDV AUTO SERVICE', style: pw.TextStyle(font: fontBold, fontSize: 24))), 
+              pw.Center(child: pw.Text(docTitle.toUpperCase(), style: pw.TextStyle(font: fontBold, fontSize: 20))), pw.SizedBox(height: 20),
+              pw.Text('Khách hàng: ${selectedOrder!.customerName}', style: pw.TextStyle(font: font)), pw.Text('Biển số: ${selectedOrder!.bienSo} | Mã RO: ${selectedOrder!.roCode}', style: pw.TextStyle(font: font)), pw.Text('Ngày lập: ${DateTime.now().toString().substring(0, 16)}', style: pw.TextStyle(font: font)), pw.SizedBox(height: 20),
+              
+              if (currentJobs.isNotEmpty) ...[
+                pw.Text('I. TIỀN CÔNG SỬA CHỮA', style: pw.TextStyle(font: fontBold, fontSize: 14)), pw.SizedBox(height: 8), 
+                pw.Table.fromTextArray(context: context, cellStyle: pw.TextStyle(font: font), headerStyle: pw.TextStyle(font: fontBold), data: <List<String>>[['Mã', 'Tên công việc', 'Giờ', 'Đơn giá', 'Giảm', 'VAT', 'HTTT', 'Thành tiền'], ...currentJobs.map((e) => [e.codeCtrl.text.isEmpty ? '-' : e.codeCtrl.text, e.nameCtrl.text, e.hoursCtrl.text, _formatVND(e.price), _formatVND(e.discount), '${e.vatRate}%', e.paymentMethod, _formatVND(e.totalWithVat)])]), pw.SizedBox(height: 20)
+              ],
+              
+              if (currentParts.isNotEmpty) ...[
+                pw.Text('II. PHỤ TÙNG VẬT TƯ', style: pw.TextStyle(font: fontBold, fontSize: 14)), pw.SizedBox(height: 8), 
+                pw.Table.fromTextArray(context: context, cellStyle: pw.TextStyle(font: font), headerStyle: pw.TextStyle(font: fontBold), data: <List<String>>[['Mã', 'Tên phụ tùng', 'SL', 'Đơn giá', 'Giảm', 'VAT', 'HTTT', 'Thành tiền'], ...currentParts.map((e) => [e.codeCtrl.text.isEmpty ? '-' : e.codeCtrl.text, e.nameCtrl.text, e.qtyCtrl.text, _formatVND(e.price), _formatVND(e.discount), '${e.vatRate}%', e.paymentMethod, _formatVND(e.totalWithVat)])]), pw.SizedBox(height: 20)
+              ],
+              
+              pw.Divider(), 
+              pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  children: [
+                      pw.Column(
+                          crossAxisAlignment: pw.CrossAxisAlignment.start,
+                          children: [
+                              pw.Text('Chi tiết thanh toán:', style: pw.TextStyle(font: fontBold, fontSize: 12)),
+                              pw.Text('Khách hàng TT: ${_formatVND(double.tryParse(customerPayCtrl.text.replaceAll(',', '')) ?? 0)} đ', style: pw.TextStyle(font: font)),
+                              pw.Text('Bảo hiểm TT: ${_formatVND(double.tryParse(insurancePayCtrl.text.replaceAll(',', '')) ?? 0)} đ', style: pw.TextStyle(font: font)),
+                              pw.Text('VinFast TT: ${_formatVND(double.tryParse(vinfastPayCtrl.text.replaceAll(',', '')) ?? 0)} đ', style: pw.TextStyle(font: font)),
+                              pw.Text('Công nợ: ${_formatVND(double.tryParse(debtCtrl.text.replaceAll(',', '')) ?? 0)} đ', style: pw.TextStyle(font: font)),
+                          ]
+                      ),
+                      pw.Column(
+                          crossAxisAlignment: pw.CrossAxisAlignment.end, 
+                          children: [
+                              pw.Text('Cộng tiền hàng (Sau giảm): ${_formatVND(subTotal)} đ', style: pw.TextStyle(font: font)), 
+                              pw.Text('Tổng tiền thuế VAT: ${_formatVND(totalVat)} đ', style: pw.TextStyle(font: font)), 
+                              pw.SizedBox(height: 8), 
+                              pw.Text('TỔNG THANH TOÁN: ${_formatVND(grandTotal)} đ', style: pw.TextStyle(font: fontBold, fontSize: 16))
+                          ]
+                      )
+                  ]
+              ),
+            ]
+          );
+        }
+      )
+    );
+    await Printing.layoutPdf(onLayout: (PdfPageFormat format) async => pdf.save(), name: 'Bao_Gia_${selectedOrder!.bienSo}');
+  }
+  
+  void _showExportMenu() { 
+    showModalBottomSheet(
+      context: context, 
+      builder: (context) => Padding(
+        padding: const EdgeInsets.all(24.0), 
+        child: Column(
+          mainAxisSize: MainAxisSize.min, 
+          children: [
+            const Text('Xuất / In tài liệu', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)), const SizedBox(height: 16),
+            ListTile(leading: const Icon(Icons.receipt), title: const Text('Báo giá sửa chữa'), onTap: () { Navigator.pop(context); _exportPdfDocument('Báo Giá Sửa Chữa'); }), 
+            ListTile(leading: const Icon(Icons.build), title: const Text('Lệnh sửa chữa (RO)'), onTap: () { Navigator.pop(context); _exportPdfDocument('Lệnh Sửa Chữa (RO)'); })
+          ]
+        )
+      )
+    ); 
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8FAFC),
+      appBar: AppBar(
+        title: const Text('CVDV - Xử Lý Báo Giá & Dịch Vụ', style: TextStyle(fontWeight: FontWeight.bold)), backgroundColor: Colors.white,
+        actions: [
+          Center(child: Text('User: ${widget.login.userName}  ', style: const TextStyle(fontWeight: FontWeight.bold))), 
+          IconButton(icon: const Icon(Icons.refresh), onPressed: _loadBoard, tooltip: 'Làm mới'), 
+          IconButton(icon: const Icon(Icons.logout, color: Colors.red), onPressed: () { Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginScreen())); }, tooltip: 'Đăng xuất'), const SizedBox(width: 16)
+        ],
+      ),
+      body: Row(
+        children: [
+          Container(
+            width: 380, color: Colors.white,
+            child: Column(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(16), color: const Color(0xFFE2E8F0), width: double.infinity, 
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      isExpanded: true, value: _selectedFilter, icon: const Icon(Icons.filter_list, color: Colors.blue),
+                      style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1E293B), fontSize: 16),
+                      items: _filters.map((String value) { return DropdownMenuItem<String>(value: value, child: Text(value)); }).toList(),
+                      onChanged: (newValue) { setState(() { _selectedFilter = newValue!; selectedOrder = null; }); },
+                    ),
+                  )
+                ),
+                
+                Expanded(
+                  child: loading 
+                    ? const Center(child: CircularProgressIndicator()) 
+                    : filteredOrders.isEmpty 
+                      ? const Center(child: Text('Không có xe nào trong danh mục này', style: TextStyle(color: Colors.grey)))
+                      : ListView.separated(
+                          itemCount: filteredOrders.length, separatorBuilder: (_, __) => const Divider(height: 1),
+                          itemBuilder: (context, index) {
+                            final item = filteredOrders[index]; final isSelected = selectedOrder?.id == item.id;
+                            bool hasBooking = bookings.any((b) => b.bienSo.replaceAll(RegExp(r'[\s-]'), '').toLowerCase() == item.bienSo.replaceAll(RegExp(r'[\s-]'), '').toLowerCase());
+                            bool hasLinkRequest = item.linkRequestedBy.isNotEmpty && item.linkRequestedBy != 'null';
+                            bool hasNewMsg = false;
+                            try { if (item.chatLogs != null && item.chatLogs.toString() != '[]') { List logs = (item.chatLogs is String) ? jsonDecode(item.chatLogs) : List.from(item.chatLogs); if (logs.isNotEmpty && logs.last['role'] == 'Khách hàng') hasNewMsg = true; } } catch (_) {}
+
+                            return ListTile(
+                              selected: isSelected, selectedTileColor: const Color(0xFFDBEAFE), leading: Icon(Icons.directions_car, color: isSelected ? Colors.blue : Colors.blueGrey, size: 40),
+                              title: Row(
+                                children: [
+                                  Text(item.bienSo, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20)), 
+                                  if (hasBooking) ...[const SizedBox(width: 8), Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), decoration: BoxDecoration(color: Colors.orange, borderRadius: BorderRadius.circular(4)), child: const Text('CÓ HẸN', style: TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold)))]
+                                ]
+                              ), 
+                              subtitle: Padding(
+                                padding: const EdgeInsets.only(top: 8.0),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start, 
+                                  children: [
+                                    Text(item.status, style: const TextStyle(fontSize: 14)),
+                                    if (hasLinkRequest) Container(margin: const EdgeInsets.only(top: 6), padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(6)), child: const Text('🔔 KHÁCH XIN LIÊN KẾT', style: TextStyle(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold))),
+                                    if (hasNewMsg) Container(margin: const EdgeInsets.only(top: 6), padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), decoration: BoxDecoration(color: Colors.blue, borderRadius: BorderRadius.circular(6)), child: const Text('💬 CÓ TIN NHẮN TỪ KHÁCH', style: TextStyle(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold)))
+                                  ]
+                                ),
+                              ),
+                              onTap: () { 
+                                setState(() { 
+                                  selectedOrder = item; _clearFormsRaw(); 
+                                  try {
+                                    if (item.jobs != null && item.jobs.toString() != 'null' && item.jobs.toString() != '[]') {
+                                      List jList = (item.jobs is String) ? jsonDecode(item.jobs) : List.from(item.jobs);
+                                      for (var j in jList) {
+                                        final job = JobItem(); job.codeCtrl.text = j['code']?.toString() ?? ''; job.nameCtrl.text = j['name']?.toString() ?? ''; job.hoursCtrl.text = (j['hours'] ?? 0).toString(); job.priceCtrl.text = (j['price'] ?? 0).toStringAsFixed(0); job.discountCtrl.text = (j['discount'] ?? 0).toStringAsFixed(0); job.vatCtrl.text = (j['vat'] ?? 0).toStringAsFixed(0); job.noteCtrl.text = j['note']?.toString() ?? ''; job.paymentMethod = j['paymentMethod']?.toString() ?? 'C'; currentJobs.add(job);
+                                      }
+                                    }
+                                    if (item.parts != null && item.parts.toString() != 'null' && item.parts.toString() != '[]') {
+                                      List pList = (item.parts is String) ? jsonDecode(item.parts) : List.from(item.parts);
+                                      for (var p in pList) {
+                                        final part = PartItem(); part.codeCtrl.text = p['code']?.toString() ?? ''; part.nameCtrl.text = p['name']?.toString() ?? ''; part.qtyCtrl.text = (p['qty'] ?? 0).toString(); part.priceCtrl.text = (p['price'] ?? 0).toStringAsFixed(0); part.discountCtrl.text = (p['discount'] ?? 0).toStringAsFixed(0); part.vatCtrl.text = (p['vat'] ?? 0).toStringAsFixed(0); part.noteCtrl.text = p['note']?.toString() ?? ''; part.paymentMethod = p['paymentMethod']?.toString() ?? 'C'; currentParts.add(part);
+                                      }
+                                    }
+                                  } catch(_) {}
+                                }); 
+                              },
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+          ),
+          const VerticalDivider(width: 1, color: Color(0xFFCBD5E1)),
+          
+          Expanded(
+            child: selectedOrder == null 
+              ? const Center(child: Text('← Chọn xe từ danh sách để làm Báo giá', style: TextStyle(fontSize: 18, color: Colors.grey))) 
+              : Column(
+                  children: [
+                    if (selectedOrder!.linkRequestedBy.isNotEmpty && selectedOrder!.linkRequestedBy != 'null')
+                      Container(
+                        padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: const Color(0xFFFEF2F2), border: Border(bottom: BorderSide(color: Colors.red.shade200))),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.warning_amber_rounded, color: Colors.red, size: 32), const SizedBox(width: 12), 
+                            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('YÊU CẦU TRUY CẬP TỪ KHÁCH HÀNG', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red)), Text('SĐT [${selectedOrder!.linkRequestedBy}] yêu cầu theo dõi xe này.', style: const TextStyle(color: Colors.redAccent))])), 
+                            TextButton(onPressed: () => _handleLinkRequest(selectedOrder!, false), child: const Text('TỪ CHỐI', style: TextStyle(color: Colors.red))), const SizedBox(width: 8), 
+                            FilledButton(onPressed: () => _handleLinkRequest(selectedOrder!, true), style: FilledButton.styleFrom(backgroundColor: Colors.green), child: const Text('XÁC NHẬN CHO KHÁCH'))
+                          ]
+                        )
+                      ),
+
+                    Container(
+                      color: Colors.white, padding: const EdgeInsets.all(24),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start, 
+                            children: [
+                              Row(
+                                children: [
+                                  Text(selectedOrder!.bienSo, style: const TextStyle(fontSize: 36, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))), 
+                                  if (selectedOrder!.linkedCustomer.isNotEmpty && selectedOrder!.linkedCustomer != 'null') ...[
+                                    const SizedBox(width: 12), 
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), decoration: BoxDecoration(color: Colors.green.shade50, border: Border.all(color: Colors.green), borderRadius: BorderRadius.circular(8)), 
+                                      child: Row(children: [const Icon(Icons.verified_user, color: Colors.green, size: 16), const SizedBox(width: 4), Text('Đã KH: ${selectedOrder!.linkedCustomer}', style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 12))])
+                                    )
+                                  ]
+                                ]
+                              ), 
+                              const SizedBox(height: 8), 
+                              Text('Khách hàng: ${selectedOrder!.customerName} | SĐT: ${selectedOrder!.customerPhone}', style: const TextStyle(fontSize: 16)),
+                              const SizedBox(height: 4),
+                              Row(children: [const Icon(Icons.access_time, size: 14, color: Colors.grey), const SizedBox(width: 4), Text('Thời gian xe vào xưởng: ${selectedOrder!.createdAt?.toString().substring(0,16) ?? "Chưa rõ"} (Đã ở xưởng: ${_calculateSLA(selectedOrder!.createdAt)})', style: const TextStyle(color: Colors.grey, fontStyle: FontStyle.italic))])
+                            ]
+                          ),
+                          Expanded(
+                            child: Wrap(
+                              alignment: WrapAlignment.end, spacing: 12, runSpacing: 8, 
+                              children: [
+                                OutlinedButton.icon(onPressed: () => _makePhoneCall(selectedOrder!.customerPhone), icon: const Icon(Icons.phone, color: Colors.green), label: const Text('Gọi Khách', style: TextStyle(color: Colors.green))), 
+                                FilledButton.icon(onPressed: _openChatDialog, icon: const Icon(Icons.chat), label: const Text('Nhắn tin KH')), 
+                                OutlinedButton.icon(onPressed: _importMisa, icon: const Icon(Icons.upload_file, color: Colors.blue), label: const Text('Import MISA')), 
+                                OutlinedButton.icon(onPressed: _importDms, icon: const Icon(Icons.drive_folder_upload, color: Colors.orange), label: const Text('Import DMS (DOCX)')), 
+                                OutlinedButton.icon(onPressed: _showExportMenu, icon: const Icon(Icons.print), label: const Text('In / PDF')),
+                              ]
+                            ),
+                          )
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(32),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            TextField(controller: urgentNotesCtrl, maxLines: 2, decoration: const InputDecoration(labelText: 'Ghi chú CẦN LÀM SỚM', border: OutlineInputBorder(), filled: true, fillColor: Color(0xFFFEF2F2), prefixIcon: Icon(Icons.warning, color: Colors.red))), 
+                            const SizedBox(height: 32),
+                            
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween, 
+                              children: [
+                                const Text('I. TIỀN CÔNG SỬA CHỮA', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1E40AF))), 
+                                OutlinedButton.icon(onPressed: () { setState(() { currentJobs.add(JobItem()); }); }, icon: const Icon(Icons.add, size: 20), label: const Text('Thêm công việc'))
+                              ]
+                            ), 
+                            const SizedBox(height: 16),
+                            ...currentJobs.asMap().entries.map((entry) {
+                              JobItem job = entry.value; 
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 16), 
+                                child: Row(
+                                  children: [
+                                    Expanded(flex: 2, child: TextField(controller: job.codeCtrl, decoration: const InputDecoration(labelText: 'Mã CV', border: OutlineInputBorder(), isDense: true))), const SizedBox(width: 8),
+                                    Expanded(flex: 3, child: TextField(controller: job.nameCtrl, decoration: const InputDecoration(labelText: 'Tên CV', border: OutlineInputBorder(), isDense: true))), const SizedBox(width: 8), 
+                                    Expanded(flex: 1, child: TextField(controller: job.hoursCtrl, keyboardType: TextInputType.number, onChanged: (_) => setState((){}), decoration: const InputDecoration(labelText: 'Giờ/SL', border: OutlineInputBorder(), isDense: true))), const SizedBox(width: 8), 
+                                    Expanded(flex: 2, child: TextField(controller: job.priceCtrl, keyboardType: TextInputType.number, onChanged: (_) => setState((){}), decoration: const InputDecoration(labelText: 'Đơn giá', border: OutlineInputBorder(), isDense: true))), const SizedBox(width: 8), 
+                                    Expanded(flex: 1, child: TextField(controller: job.discountCtrl, keyboardType: TextInputType.number, onChanged: (_) => setState((){}), decoration: const InputDecoration(labelText: 'Giảm', border: OutlineInputBorder(), isDense: true))), const SizedBox(width: 8), 
+                                    Expanded(flex: 1, child: TextField(controller: job.vatCtrl, keyboardType: TextInputType.number, onChanged: (_) => setState((){}), decoration: const InputDecoration(labelText: 'VAT%', border: OutlineInputBorder(), isDense: true))), const SizedBox(width: 8), 
+                                    
+                                    Container(
+                                        width: 70,
+                                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                                        decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade400), borderRadius: BorderRadius.circular(4)),
+                                        child: DropdownButtonHideUnderline(
+                                            child: DropdownButton<String>(
+                                                value: job.paymentMethod,
+                                                isExpanded: true,
+                                                onChanged: (String? newValue) { if (newValue != null) { setState(() { job.paymentMethod = newValue; }); } },
+                                                items: paymentOptions.map<DropdownMenuItem<String>>((String value) {
+                                                    return DropdownMenuItem<String>(value: value, child: Text(value, style: const TextStyle(fontWeight: FontWeight.bold)));
+                                                }).toList(),
+                                            )
+                                        )
+                                    ),
+                                    const SizedBox(width: 8),
+
+                                    Expanded(flex: 2, child: TextField(controller: job.noteCtrl, decoration: const InputDecoration(labelText: 'Ghi chú', border: OutlineInputBorder(), isDense: true))), const SizedBox(width: 8), 
+                                    Expanded(flex: 2, child: Container(padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(8)), child: Text(_formatVND(job.totalWithVat), textAlign: TextAlign.right, style: const TextStyle(fontWeight: FontWeight.bold)))), const SizedBox(width: 4), 
+                                    IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: () => setState(() => currentJobs.removeAt(entry.key))) 
+                                  ]
+                                )
+                              );
+                            }),
+                            const SizedBox(height: 40),
+                            
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween, 
+                              children: [
+                                const Text('II. PHỤ TÙNG & VẬT TƯ', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1E40AF))), 
+                                OutlinedButton.icon(onPressed: () { setState(() { currentParts.add(PartItem()); }); }, icon: const Icon(Icons.add, size: 20), label: const Text('Thêm phụ tùng'))
+                              ]
+                            ), 
+                            const SizedBox(height: 16),
+                            ...currentParts.asMap().entries.map((entry) {
+                              PartItem part = entry.value; 
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 16), 
+                                child: Row(
+                                  children: [
+                                    Expanded(flex: 2, child: TextField(controller: part.codeCtrl, decoration: const InputDecoration(labelText: 'Mã PT', border: OutlineInputBorder(), isDense: true))), const SizedBox(width: 8),
+                                    Expanded(flex: 3, child: TextField(controller: part.nameCtrl, decoration: const InputDecoration(labelText: 'Tên PT', border: OutlineInputBorder(), isDense: true))), const SizedBox(width: 8), 
+                                    Expanded(flex: 1, child: TextField(controller: part.qtyCtrl, keyboardType: TextInputType.number, onChanged: (_) => setState((){}), decoration: const InputDecoration(labelText: 'SL', border: OutlineInputBorder(), isDense: true))), const SizedBox(width: 8), 
+                                    Expanded(flex: 2, child: TextField(controller: part.priceCtrl, keyboardType: TextInputType.number, onChanged: (_) => setState((){}), decoration: const InputDecoration(labelText: 'Đơn giá', border: OutlineInputBorder(), isDense: true))), const SizedBox(width: 8), 
+                                    Expanded(flex: 1, child: TextField(controller: part.discountCtrl, keyboardType: TextInputType.number, onChanged: (_) => setState((){}), decoration: const InputDecoration(labelText: 'Giảm', border: OutlineInputBorder(), isDense: true))), const SizedBox(width: 8), 
+                                    Expanded(flex: 1, child: TextField(controller: part.vatCtrl, keyboardType: TextInputType.number, onChanged: (_) => setState((){}), decoration: const InputDecoration(labelText: 'VAT%', border: OutlineInputBorder(), isDense: true))), const SizedBox(width: 8), 
+                                    
+                                    Container(
+                                        width: 70,
+                                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                                        decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade400), borderRadius: BorderRadius.circular(4)),
+                                        child: DropdownButtonHideUnderline(
+                                            child: DropdownButton<String>(
+                                                value: part.paymentMethod,
+                                                isExpanded: true,
+                                                onChanged: (String? newValue) { if (newValue != null) { setState(() { part.paymentMethod = newValue; }); } },
+                                                items: paymentOptions.map<DropdownMenuItem<String>>((String value) {
+                                                    return DropdownMenuItem<String>(value: value, child: Text(value, style: const TextStyle(fontWeight: FontWeight.bold)));
+                                                }).toList(),
+                                            )
+                                        )
+                                    ),
+                                    const SizedBox(width: 8),
+
+                                    Expanded(flex: 2, child: TextField(controller: part.noteCtrl, decoration: const InputDecoration(labelText: 'Ghi chú', border: OutlineInputBorder(), isDense: true))), const SizedBox(width: 8), 
+                                    Expanded(flex: 2, child: Container(padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(8)), child: Text(_formatVND(part.totalWithVat), textAlign: TextAlign.right, style: const TextStyle(fontWeight: FontWeight.bold)))), const SizedBox(width: 4), 
+                                    IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: () => setState(() => currentParts.removeAt(entry.key))) 
+                                  ]
+                                )
+                              );
+                            }),
+                          ],
+                        ),
+                      ),
+                    ),
+                    
+                    Container(
+                      padding: const EdgeInsets.all(24), 
+                      decoration: const BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, -2))]),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Expanded(
+                            flex: 4,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('THAO TÁC CẬP NHẬT:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey, fontSize: 14)), const SizedBox(height: 12),
+                                Wrap( 
+                                  spacing: 12, runSpacing: 12,
+                                  children: [
+                                    FilledButton.icon(onPressed: loading ? null : () => _updateRoStatus('CHO_BAO_GIA'), icon: const Icon(Icons.save), style: FilledButton.styleFrom(backgroundColor: const Color(0xFF64748B), padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16)), label: const Text('Lưu Nháp', style: TextStyle(fontSize: 14))), 
+                                    FilledButton.icon(onPressed: loading ? null : () => _updateRoStatus('CHO_KH_DUYET'), icon: const Icon(Icons.send), style: FilledButton.styleFrom(backgroundColor: const Color(0xFFF59E0B), padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16)), label: const Text('Gửi KH Duyệt', style: TextStyle(fontSize: 14))), 
+                                    FilledButton.icon(onPressed: loading ? null : () => _updateRoStatus('CHO_PHAN_CONG'), icon: const Icon(Icons.handyman), style: FilledButton.styleFrom(backgroundColor: const Color(0xFF10B981), padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16)), label: const Text('Duyệt -> Quản Đốc', style: TextStyle(fontSize: 14))),
+                                    FilledButton.icon(onPressed: loading ? null : () => _showMissingPartsDialog(), icon: const Icon(Icons.output), style: FilledButton.styleFrom(backgroundColor: Colors.red, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16)), label: const Text('Ra Xưởng (Thiếu PT)', style: TextStyle(fontSize: 14))),
+                                    if (selectedOrder!.status == 'CHO_CVDV_CHOT') FilledButton.icon(onPressed: loading ? null : () => _updateRoStatus('CHO_QUYET_TOAN'), icon: const Icon(Icons.fact_check), style: FilledButton.styleFrom(backgroundColor: Colors.teal, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16)), label: const Text('Kho Đã Xuất Đủ -> Chuyển Kế Toán', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold))),
+                                  ]
+                                ),
+                              ],
+                            ),
+                          ),
+                          
+                          Expanded(
+                              flex: 3,
+                              child: Container(
+                                  padding: const EdgeInsets.all(16), margin: const EdgeInsets.only(right: 16),
+                                  decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.blue.shade200)),
+                                  child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                          const Text('Nguồn Thanh Toán (CVDV điền):', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)), const SizedBox(height: 8),
+                                          Row(
+                                              children: [
+                                                  Expanded(child: TextField(controller: customerPayCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'KH Thanh toán', isDense: true, border: OutlineInputBorder(), filled: true, fillColor: Colors.white))), const SizedBox(width: 8),
+                                                  Expanded(child: TextField(controller: insurancePayCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Bảo hiểm TT', isDense: true, border: OutlineInputBorder(), filled: true, fillColor: Colors.white))),
+                                              ]
+                                          ),
+                                          const SizedBox(height: 8),
+                                          Row(
+                                              children: [
+                                                  Expanded(child: TextField(controller: vinfastPayCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Vinfast TT', isDense: true, border: OutlineInputBorder(), filled: true, fillColor: Colors.white))), const SizedBox(width: 8),
+                                                  Expanded(child: TextField(controller: debtCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Công nợ', isDense: true, border: OutlineInputBorder(), filled: true, fillColor: Colors.white))),
+                                              ]
+                                          )
+                                      ]
+                                  )
+                              )
+                          ),
+
+                          Container(
+                            width: 300, padding: const EdgeInsets.all(20), decoration: BoxDecoration(color: const Color(0xFFF8FAFC), borderRadius: BorderRadius.circular(16), border: Border.all(color: const Color(0xFFE2E8F0))),
+                            child: Column(
+                              children: [
+                                Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('Cộng tiền hàng:'), Text('${_formatVND(subTotal)} ₫', style: const TextStyle(fontWeight: FontWeight.bold))]), const SizedBox(height: 8),
+                                Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('Tổng Thuế VAT:'), Text('${_formatVND(totalVat)} ₫', style: const TextStyle(fontWeight: FontWeight.bold))]), const Divider(height: 24),
+                                Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('TỔNG:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)), Text('${_formatVND(grandTotal)} ₫', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 24, color: Colors.red))]),
+                              ],
+                            ),
+                          )
+                        ],
+                      ),
+                    )
+                  ],
+                ),
+          ),
+        ],
+      ),
+    );
+  }
+}

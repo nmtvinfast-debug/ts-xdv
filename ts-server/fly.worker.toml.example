@@ -1,0 +1,27 @@
+# fly.toml - TS-Worker (BullMQ worker)
+app = "ts-worker-yourapp" # có thể tách app riêng
+primary_region = "sin"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+
+[processes]
+  worker = "node src/worker.js"
+
+[[services]]
+  processes = ["worker"]
+  internal_port = 8080
+  protocol = "tcp"
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[services.checks]]
+  grace_period = "10s"
+  interval = "30s"
+  timeout = "5s"
+  method = "GET"
+  path = "/health"

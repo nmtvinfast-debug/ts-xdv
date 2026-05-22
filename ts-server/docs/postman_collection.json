@@ -1,0 +1,71 @@
+{
+  "info": {
+    "name": "TS-Server API (Phase 9B)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/health"
+      }
+    },
+    {
+      "name": "Login",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/auth/login",
+        "body": {
+          "mode": "raw",
+          "raw": "{\"username\":\"admin\",\"password\":\"admin\"}"
+        }
+      }
+    },
+    {
+      "name": "Org Dashboard Consolidated",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/org/consolidated/dashboard"
+      }
+    },
+    {
+      "name": "Org Finance Consolidated",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/org/consolidated/finance?group=month"
+      }
+    },
+    {
+      "name": "Metrics",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/metrics",
+        "header": [
+          {
+            "key": "x-metrics-token",
+            "value": "{{metricsToken}}"
+          }
+        ]
+      }
+    }
+  ]
+}

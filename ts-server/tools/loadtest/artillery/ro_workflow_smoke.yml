@@ -1,0 +1,15 @@
+config:
+  target: "{{ $processEnvironment.BASE_URL || 'http://localhost:8080' }}"
+  phases:
+    - duration: 30
+      arrivalRate: 5
+  defaults:
+    headers:
+      content-type: "application/json"
+      authorization: "Bearer {{ $processEnvironment.JWT || '' }}"
+      x-workshop-id: "{{ $processEnvironment.WORKSHOP_ID || '' }}"
+scenarios:
+  - name: "smoke"
+    flow:
+      - get:
+          url: "/api/v1/health"

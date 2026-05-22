@@ -1,0 +1,14 @@
+﻿node_modules
+.git
+.vscode
+.idea
+dist
+build
+coverage
+tmp
+temp
+*.zip
+backups
+.DS_Store
+.env
+.env.*

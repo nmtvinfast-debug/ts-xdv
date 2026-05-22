@@ -1,0 +1,285 @@
+{
+  "info": {
+    "name": "TS-Server API (v30)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000/api"
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "roId",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Auth - Login",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/auth/login",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "auth",
+            "login"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"username\": \"ketoan_demo\", \"password\": \"Demo@123456\"}"
+        }
+      }
+    },
+    {
+      "name": "Settlements - Finalize",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "idem-finalize-1"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/settlements/{{roId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "settlements",
+            "{{roId}}"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"customer_pay\": 1000000, \"insurance_pay\": 0, \"debt_amount\": 0}"
+        }
+      }
+    },
+    {
+      "name": "Settlements - Issue invoice",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "idem-invoice-1"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/settlements/{{roId}}/invoice",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "settlements",
+            "{{roId}}",
+            "invoice"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Settlements - Issue receipt",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "idem-receipt-1"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/settlements/{{roId}}/receipt",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "settlements",
+            "{{roId}}",
+            "receipt"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Settlements - Refund",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "idem-refund-1"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/settlements/{{roId}}/refund",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "settlements",
+            "{{roId}}",
+            "refund"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"amount\": 50000, \"method\": \"cash\", \"receiver_name\": \"Nguyễn Văn Demo\", \"reason\": \"Test hoàn tiền\"}"
+        }
+      }
+    },
+    {
+      "name": "Reports - Accounting daily",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/reports/accounting/daily?date=2026-02-25",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "reports",
+            "accounting",
+            "daily"
+          ],
+          "query": [
+            {
+              "key": "date",
+              "value": "2026-02-25"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Reports - Audit",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/reports/audit?limit=50",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "reports",
+            "audit"
+          ],
+          "query": [
+            {
+              "key": "limit",
+              "value": "50"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "EInvoice - Submit",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "idem-einv-1"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/einvoice/{{roId}}/submit",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "einvoice",
+            "{{roId}}",
+            "submit"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"provider\": \"stub\"}"
+        }
+      }
+    },
+    {
+      "name": "Retention - Run",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/retention/run",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "retention",
+            "run"
+          ]
+        }
+      }
+    }
+  ]
+}

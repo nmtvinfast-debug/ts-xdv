@@ -1,0 +1,33 @@
+app = "ts-server"
+primary_region = "sin"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "3000"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  # Giữ 1 máy luôn chạy — tránh HTTP 502 khi proxy gọi API lúc máy đang tắt / cold start.
+  # (Scale-to-zero: đặt min_machines_running=0 + auto_stop_machines="stop" — app cần retry 502.)
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+[[http_service.checks]]
+  grace_period = "45s"
+  interval = "15s"
+  timeout = "10s"
+  method = "GET"
+  path = "/health"
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1
+[mounts]
+  source = "data"
+  destination = "/app/uploads"

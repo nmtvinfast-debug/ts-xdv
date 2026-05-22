@@ -1,0 +1,34 @@
+# Flutter / Dart
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.packages
+**/build/
+**/.pub-cache/
+**/.pub/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+.cursor/
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Secrets
+**/.env
+**/.env.*
+**/fly.toml.local
+
+# Node (ts-server) — giữ node_modules ignore
+**/node_modules/
+
+# Logs / temp
+**/*.log
+**/terminals/
+
+# Large release binaries (tùy chọn — bỏ comment nếu muốn commit web build)
+# ts-server/releases/

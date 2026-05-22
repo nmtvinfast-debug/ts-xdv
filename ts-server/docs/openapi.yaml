@@ -1,0 +1,397 @@
+openapi: 3.0.3
+info:
+  title: TS-Server API
+  version: "v30"
+  description: |
+    TS-Server (TS-XDV) – API sản xuất cho xưởng dịch vụ ô tô (đa vai trò, multi-tenant).
+    Tất cả message lỗi nên là tiếng Việt theo chuẩn UI.
+servers:
+  - url: /api
+tags:
+  - name: Auth
+    description: Đăng nhập / Token
+  - name: Settlements
+    description: Quyết toán, hóa đơn, phiếu thu, hoàn tiền
+  - name: Debts
+    description: Công nợ & thanh toán công nợ
+  - name: Reports
+    description: Báo cáo đối soát, audit
+  - name: EInvoice
+    description: Hóa đơn điện tử (stub + adapter)
+  - name: Retention
+    description: Dọn dữ liệu theo chính sách lưu trữ
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    ApiError:
+      type: object
+      properties:
+        ok: { type: boolean, example: false }
+        message: { type: string, example: "Không có quyền truy cập." }
+        errors:
+          type: array
+          items: { type: string }
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string, example: "ketoan_demo" }
+        password: { type: string, example: "Demo@123456" }
+    LoginResponse:
+      type: object
+      properties:
+        ok: { type: boolean, example: true }
+        accessToken: { type: string, example: "eyJ..." }
+        refreshToken: { type: string, example: "eyJ..." }
+        role: { type: string, example: "KE_TOAN" }
+        permissions:
+          type: array
+          items: { type: string }
+        workshopId: { type: string, example: "uuid" }
+        branchId: { type: string, nullable: true, example: "uuid" }
+
+    SettlementFinalizeRequest:
+      type: object
+      properties:
+        customer_pay: { type: number, example: 1000000 }
+        insurance_pay: { type: number, example: 0 }
+        debt_amount: { type: number, example: 0 }
+        debt_owner: { type: string, nullable: true, example: "customer" }
+    RefundRequest:
+      type: object
+      required: [amount, method, receiver_name, reason]
+      properties:
+        amount: { type: number, example: 50000 }
+        method:
+          type: string
+          enum: [cash, transfer, card, other]
+          example: cash
+        receiver_name: { type: string, example: "Nguyễn Văn Demo" }
+        reason: { type: string, example: "Hoàn tiền phát sinh" }
+
+paths:
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Đăng nhập (JWT)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LoginResponse" }
+        "400":
+          description: Dữ liệu không hợp lệ
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+
+  /settlements/{roId}:
+    post:
+      tags: [Settlements]
+      summary: Quyết toán RO (finalize)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: roId
+          required: true
+          schema: { type: string }
+        - in: header
+          name: Idempotency-Key
+          required: false
+          schema: { type: string }
+          description: Chống bấm 2 lần (v23).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SettlementFinalizeRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  settlement: { type: object }
+        "401":
+          description: Chưa đăng nhập
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+        "403":
+          description: Không có quyền
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+
+  /settlements/{roId}/invoice:
+    post:
+      tags: [Settlements]
+      summary: Phát hành hóa đơn (PDF)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: roId
+          required: true
+          schema: { type: string }
+        - in: header
+          name: Idempotency-Key
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, properties: { ok: {type:boolean}, invoice: {type: object} } }
+
+  /settlements/{roId}/receipt:
+    post:
+      tags: [Settlements]
+      summary: Phát hành phiếu thu (PDF)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: roId
+          required: true
+          schema: { type: string }
+        - in: header
+          name: Idempotency-Key
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, properties: { ok: {type:boolean}, receipt: {type: object} } }
+
+  /settlements/{roId}/refund:
+    post:
+      tags: [Settlements]
+      summary: Hoàn tiền (tạo phiếu chi + debt reversal nếu cần)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: roId
+          required: true
+          schema: { type: string }
+        - in: header
+          name: Idempotency-Key
+          required: false
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RefundRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, properties: { ok: {type:boolean}, voucher: {type: object} } }
+
+  /debts/{id}/pay:
+    post:
+      tags: [Debts]
+      summary: Thanh toán công nợ
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+        - in: header
+          name: Idempotency-Key
+          required: false
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount, method]
+              properties:
+                amount: { type: number, example: 100000 }
+                method: { type: string, enum: [cash, transfer, card, other], example: transfer }
+                note: { type: string, example: "KH trả thêm" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, properties: { ok:{type:boolean}, payment:{type:object} } }
+
+  /debts/{id}/adjust:
+    post:
+      tags: [Debts]
+      summary: Điều chỉnh công nợ (delta +/-)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [delta, reason]
+              properties:
+                delta: { type: number, example: -50000 }
+                reason: { type: string, example: "Giảm công nợ do hoàn tiền" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, properties: { ok:{type:boolean} } }
+
+  /reports/accounting/daily:
+    get:
+      tags: [Reports]
+      summary: Báo cáo đối soát theo ngày
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: date
+          required: false
+          schema: { type: string, example: "2026-02-25" }
+        - in: query
+          name: branch_id
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, properties: { ok:{type:boolean} } }
+
+  /reports/audit:
+    get:
+      tags: [Reports]
+      summary: Danh sách audit events
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: from
+          schema: { type: string, example: "2026-02-18" }
+        - in: query
+          name: to
+          schema: { type: string, example: "2026-02-25" }
+        - in: query
+          name: action
+          schema: { type: string, example: "ACCOUNTING_FINALIZE" }
+        - in: query
+          name: limit
+          schema: { type: integer, example: 200 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, properties: { ok:{type:boolean}, items:{type:array, items:{type:object}} } }
+
+  /einvoice/{roId}/submit:
+    post:
+      tags: [EInvoice]
+      summary: Gửi hóa đơn điện tử (stub/adapter)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: roId
+          required: true
+          schema: { type: string }
+        - in: header
+          name: Idempotency-Key
+          required: false
+          schema: { type: string }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                provider: { type: string, example: "stub" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, properties: { ok:{type:boolean}, status:{type:string} } }
+
+  /einvoice/{roId}/status:
+    get:
+      tags: [EInvoice]
+      summary: Kiểm tra trạng thái hóa đơn điện tử
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: roId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, properties: { ok:{type:boolean}, status:{type:string} } }
+
+  /einvoice/retry:
+    post:
+      tags: [EInvoice]
+      summary: Chạy retry HĐĐT (manual)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                limit: { type: integer, example: 50 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: object }
+
+  /retention/run:
+    post:
+      tags: [Retention]
+      summary: Chạy job dọn dữ liệu theo retention
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                workshop_id: { type: string, example: "uuid" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, properties: { ok:{type:boolean}, run_id:{type:string} } }
