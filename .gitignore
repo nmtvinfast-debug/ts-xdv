@@ -30,5 +30,7 @@ Desktop.ini
 **/*.log
 **/terminals/
 
-# Large release binaries (tùy chọn — bỏ comment nếu muốn commit web build)
+# Large release binaries — deploy qua Fly, không đẩy lên GitHub
+ts-server/releases/*.apk
+ts-server/releases/*.exe
 # ts-server/releases/

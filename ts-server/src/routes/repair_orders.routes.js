@@ -29,10 +29,16 @@ export function createRepairOrdersRouter(pool) {
 
   r.get('/', auth, async (req, res) => {
     try {
-      const scope = sqlWorkshopMatch('', req.user, 1);
+      const scope = sqlWorkshopMatch('ro', req.user, 1);
       const vals = scope.value !== undefined ? [scope.value] : [];
       const result = await pool.query(
-        `SELECT * FROM repair_orders WHERE 1=1${scope.clause} ORDER BY time_in DESC`,
+        `SELECT ro.*, cu.phone AS cvdv_phone
+         FROM repair_orders ro
+         LEFT JOIN users cu
+           ON lower(trim(cu.username)) = lower(trim(ro.cvdv_username))
+          AND cu.is_active = true
+         WHERE 1=1${scope.clause}
+         ORDER BY ro.time_in DESC`,
         vals,
       );
       res.json(
@@ -45,11 +51,16 @@ export function createRepairOrdersRouter(pool) {
 
   r.get('/:id', auth, async (req, res) => {
     try {
-      const scope = sqlWorkshopMatch('', req.user, 2);
+      const scope = sqlWorkshopMatch('ro', req.user, 2);
       const vals = [req.params.id];
       if (scope.value !== undefined) vals.push(scope.value);
       const result = await pool.query(
-        `SELECT * FROM repair_orders WHERE id = $1${scope.clause}`,
+        `SELECT ro.*, cu.phone AS cvdv_phone
+         FROM repair_orders ro
+         LEFT JOIN users cu
+           ON lower(trim(cu.username)) = lower(trim(ro.cvdv_username))
+          AND cu.is_active = true
+         WHERE ro.id = $1${scope.clause}`,
         vals,
       );
       if (result.rowCount === 0) return res.status(404).json({ error: 'Không tìm thấy RO' });

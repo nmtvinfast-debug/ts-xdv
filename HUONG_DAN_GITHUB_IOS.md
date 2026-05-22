@@ -14,7 +14,18 @@ Mở **PowerShell** trong thư mục `New folder` (thư mục chứa `TS-appV1` 
 
 ```powershell
 cd "C:\Users\ADMIN\Downloads\New folder"
-.\scripts\setup-github-ios.ps1 -RepoUrl "https://github.com/TENBAN/ts-xdv.git"
+```
+
+**Nếu báo lỗi «running scripts is disabled»**, dùng một trong hai cách:
+
+```cmd
+scripts\setup-github-ios.bat https://github.com/nmtvinfast-debug/ts-xdv.git
+```
+
+hoặc:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\setup-github-ios.ps1 -RepoUrl "https://github.com/nmtvinfast-debug/ts-xdv.git"
 ```
 
 Lần đầu Git hỏi đăng nhập GitHub — dùng **Personal Access Token** (Settings → Developer settings → Tokens) làm mật khẩu.

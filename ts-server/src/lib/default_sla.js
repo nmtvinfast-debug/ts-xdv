@@ -58,10 +58,10 @@ export const DEFAULT_WORKSHOP_DEFAULTS = {
   kh_ads: DEFAULT_KH_ADS,
   /** Phiên bản app — khi tăng build_number / version, app cũ hiện dialog cập nhật. */
   app_release: {
-    version_label: 'V1.0',
-    version: '1.0.0',
-    build_number: 1,
-    message: '',
+    version_label: 'V2.0',
+    version: '2.0.0',
+    build_number: 200,
+    message: 'Bản V2: sửa Gọi CVDV cho khách hàng, đồng bộ dữ liệu xưởng. Vui lòng cập nhật.',
     download_url: '',
     /** App chạy trên trình duyệt — thư mục build/web deploy lên /releases/web/ */
     download_url_web: 'https://ts-server.fly.dev/releases/web/',

@@ -281,12 +281,25 @@ class ApiService {
   }
 
   Future<List<UserItem>> fetchUsers(String token) async {
-    final res = await http.get(_v1('/users'), headers: {'Authorization': 'Bearer $token'});
+    final res = await http.get(_v1('/users'), headers: authHeaders(token));
     if (res.statusCode == 200) {
       final List data = jsonDecode(res.body);
       return data.map((e) => UserItem.fromJson(e as Map<String, dynamic>)).toList();
     }
     throw Exception('Lỗi tải danh sách nhân sự');
+  }
+
+  /// SĐT nhân sự (staff_db + users) — dùng cho KH «Gọi CVDV» (không cần quyền /users).
+  Future<List<Map<String, dynamic>>> fetchDialContacts(String token) async {
+    final res = await _getWithRetry(
+      _v1('/users/dial-contacts'),
+      headers: authHeaders(token),
+    );
+    if (res.statusCode == 200) {
+      final List data = jsonDecode(res.body);
+      return data.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    }
+    throw Exception('Lỗi tải số liên hệ: ${res.body}');
   }
 
   /// CVDV hoạt động — CSKH phân công xe (không cần staff_db.json).
@@ -322,6 +335,7 @@ class ApiService {
     required String name,
     required String role,
     String? xdvId,
+    String? phone,
   }) async {
     final body = <String, dynamic>{
       'username': username,
@@ -329,6 +343,7 @@ class ApiService {
       'name': name,
       'role': role,
       if (xdvId != null && xdvId.isNotEmpty) 'xdv_id': xdvId,
+      if (phone != null && phone.trim().isNotEmpty) 'phone': phone.trim(),
     };
     final res = await http.post(
       _v1('/users'),
@@ -348,12 +363,14 @@ class ApiService {
     String? role,
     String? password,
     String? xdvId,
+    String? phone,
   }) async {
     final body = <String, dynamic>{};
     if (name != null) body['name'] = name;
     if (role != null) body['role'] = role;
     if (password != null && password.isNotEmpty) body['password'] = password;
     if (xdvId != null) body['xdv_id'] = xdvId;
+    if (phone != null) body['phone'] = phone.trim();
     final res = await http.patch(
       _v1('/users/$id'),
       headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},

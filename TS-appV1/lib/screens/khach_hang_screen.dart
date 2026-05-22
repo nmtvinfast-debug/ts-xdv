@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../core/cross_platform_export_helpers.dart';
 import '../core/workshop_features.dart';
+import '../core/workshop_local_sync.dart';
 import '../core/payment_info.dart';
 import '../core/responsive_layout.dart';
 import '../core/ro_display.dart';
@@ -176,9 +177,14 @@ class _KhachHangScreenState extends State<KhachHangScreen> {
     final digits = _digitsOnly(raw);
     if (digits.length < 8) {
       if (mounted) {
+        final who = order.cvdvUsername.trim().isEmpty ? 'CVDV' : order.cvdvUsername.trim();
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Chưa có số điện thoại hợp lệ. Vui lòng liên hệ CSKH hoặc tổng đài.'),
+          SnackBar(
+            content: Text(
+              outside
+                  ? 'Chưa có số CSKH. Vui lòng liên hệ tổng đài.'
+                  : 'Chưa có SĐT của $who. Giám đốc cần nhập số khi tạo tài khoản CVDV.',
+            ),
             backgroundColor: Colors.orange,
           ),
         );
@@ -218,17 +224,44 @@ class _KhachHangScreenState extends State<KhachHangScreen> {
 
       var nextCskh = _cskhDial;
       final phoneMap = Map<String, String>.from(_staffPhoneByUsernameLower);
-      try {
-        final users = await api.fetchUsers(widget.login.token);
-        for (final u in users) {
-          final p = u.phone?.trim();
-          if (p == null || p.isEmpty) continue;
-          phoneMap[u.username.toLowerCase()] = p;
-          if (u.role.toUpperCase().contains('CSKH') && (nextCskh == '19001001' || nextCskh.isEmpty)) {
-            nextCskh = p;
-          }
+      void mergeStaffPhone(String username, String phone, String role) {
+        final un = username.trim().toLowerCase();
+        final p = phone.trim();
+        if (un.isEmpty || p.isEmpty) return;
+        phoneMap[un] = p;
+        if (role.toUpperCase().contains('CSKH') && (nextCskh == '19001001' || nextCskh.isEmpty)) {
+          nextCskh = p;
         }
-      } catch (_) {}
+      }
+      try {
+        final contacts = await api.fetchDialContacts(widget.login.token);
+        for (final c in contacts) {
+          mergeStaffPhone(
+            c['username']?.toString() ?? '',
+            c['phone']?.toString() ?? '',
+            c['role']?.toString() ?? '',
+          );
+        }
+      } catch (_) {
+        try {
+          final staff = await loadWorkshopJson(
+            fileName: 'staff_db.json',
+            api: api,
+            token: widget.login.token,
+          );
+          if (staff is List) {
+            for (final e in staff) {
+              final m = Map<String, dynamic>.from(e as Map);
+              if (m['isActive'] == false) continue;
+              mergeStaffPhone(
+                m['username']?.toString() ?? '',
+                m['phone']?.toString() ?? '',
+                m['role']?.toString() ?? '',
+              );
+            }
+          }
+        } catch (_) {}
+      }
       WorkshopFeatures? features;
       try {
         final w = await api.fetchWorkshopSettings(widget.login.token);

@@ -260,6 +260,33 @@ class _GiamDocDashboardScreenState extends State<GiamDocDashboardScreen> {
     );
   }
 
+  /// Đồng bộ SĐT vào staff_db để KH «Gọi CVDV» tra được (kể cả TK tạo trên server).
+  Future<void> _upsertStaffPhoneInWorkshop({
+    required String username,
+    required String fullName,
+    required String role,
+    required String phone,
+  }) async {
+    final un = username.trim().toLowerCase();
+    if (un.isEmpty) return;
+    final idx = staffList.indexWhere((s) => s.username.trim().toLowerCase() == un);
+    if (idx >= 0) {
+      staffList[idx].phone = phone.trim();
+      staffList[idx].fullName = fullName.trim().isNotEmpty ? fullName.trim() : staffList[idx].fullName;
+      staffList[idx].role = role;
+    } else if (phone.trim().isNotEmpty) {
+      staffList.add(StaffUser(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        fullName: fullName.trim().isNotEmpty ? fullName.trim() : username,
+        username: username.trim(),
+        role: role,
+        phone: phone.trim(),
+        isActive: true,
+      ));
+    }
+    await _saveStaffList();
+  }
+
   Future<void> _saveUomMap() async {
     await saveWorkshopJson(
       fileName: uomFilePath,
@@ -469,6 +496,7 @@ class _GiamDocDashboardScreenState extends State<GiamDocDashboardScreen> {
     final isEdit = user != null;
     final nameCtrl = TextEditingController(text: user?.fullName ?? '');
     final userCtrl = TextEditingController(text: user?.username ?? '');
+    final phoneCtrl = TextEditingController(text: user?.phone ?? '');
     final passCtrl = TextEditingController();
     String roleCode = _coerceRoleCode(user?.role);
 
@@ -488,6 +516,16 @@ class _GiamDocDashboardScreenState extends State<GiamDocDashboardScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Họ tên (*)', border: OutlineInputBorder(), prefixIcon: Icon(Icons.person))),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: phoneCtrl,
+                      keyboardType: TextInputType.phone,
+                      decoration: const InputDecoration(
+                        labelText: 'Số điện thoại (KH gọi CVDV)',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.phone),
+                      ),
+                    ),
                     if (!isEdit) ...[
                       const SizedBox(height: 12),
                       TextField(controller: userCtrl, decoration: const InputDecoration(labelText: 'Tên đăng nhập (*)', border: OutlineInputBorder(), prefixIcon: Icon(Icons.badge))),
@@ -533,6 +571,7 @@ class _GiamDocDashboardScreenState extends State<GiamDocDashboardScreen> {
                   }
                   try {
                     setState(() => isLoading = true);
+                    final phone = phoneCtrl.text.trim();
                     if (isEdit) {
                       await api.updateUser(
                         token: widget.login.token,
@@ -540,6 +579,13 @@ class _GiamDocDashboardScreenState extends State<GiamDocDashboardScreen> {
                         name: nameCtrl.text.trim(),
                         role: roleCode,
                         password: passCtrl.text.isNotEmpty ? passCtrl.text : null,
+                        phone: phone,
+                      );
+                      await _upsertStaffPhoneInWorkshop(
+                        username: user.username,
+                        fullName: nameCtrl.text.trim(),
+                        role: roleCode,
+                        phone: phone,
                       );
                     } else {
                       await api.createUser(
@@ -548,6 +594,13 @@ class _GiamDocDashboardScreenState extends State<GiamDocDashboardScreen> {
                         password: passCtrl.text,
                         name: nameCtrl.text.trim(),
                         role: roleCode,
+                        phone: phone,
+                      );
+                      await _upsertStaffPhoneInWorkshop(
+                        username: userCtrl.text.trim(),
+                        fullName: nameCtrl.text.trim(),
+                        role: roleCode,
+                        phone: phone,
                       );
                     }
                     if (ctx.mounted) Navigator.pop(ctx);
@@ -660,7 +713,7 @@ class _GiamDocDashboardScreenState extends State<GiamDocDashboardScreen> {
                       staffList.add(StaffUser(id: DateTime.now().millisecondsSinceEpoch.toString(), fullName: nameCtrl.text.trim(), username: userCtrl.text.trim(), role: selectedRoleCode, phone: phoneCtrl.text.trim(), isActive: true));
                     }
                   });
-                  _saveStaffList(); 
+                  _saveStaffList();
                   Navigator.pop(ctx);
                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(isEdit ? 'Cập nhật tài khoản thành công!' : 'Đã cấp tài khoản mới!'), backgroundColor: Colors.green));
                 }, 
@@ -1012,6 +1065,7 @@ class _GiamDocDashboardScreenState extends State<GiamDocDashboardScreen> {
                                     DataColumn(label: _filterHdr(_staffGdCol, 'fullName', 'Họ tên')),
                                     DataColumn(label: _filterHdr(_staffGdCol, 'username', 'Đăng nhập')),
                                     DataColumn(label: _filterHdr(_staffGdCol, 'role', 'Vai trò')),
+                                    const DataColumn(label: Text('SĐT', style: TextStyle(fontWeight: FontWeight.bold))),
                                     DataColumn(label: _filterHdr(_staffGdCol, 'active', 'Hoạt động')),
                                     DataColumn(label: _filterHdr(_staffGdCol, 'lastLogin', 'Đăng nhập cuối')),
                                     const DataColumn(label: Text('Thao tác', style: TextStyle(fontWeight: FontWeight.bold))),
@@ -1022,6 +1076,7 @@ class _GiamDocDashboardScreenState extends State<GiamDocDashboardScreen> {
                                         DataCell(Text(u.fullName.isEmpty ? '—' : u.fullName)),
                                         DataCell(Text(u.username)),
                                         DataCell(Text('${_labelForRoleCode(u.role)} (${u.role})')),
+                                        DataCell(Text((u.phone ?? '').trim().isEmpty ? '—' : u.phone!.trim())),
                                         DataCell(Text(u.isActive ? 'Có' : 'Đã khóa')),
                                         DataCell(Text(
                                           u.lastLoginAt == null ? '—' : DateFormat('dd/MM/yy HH:mm').format(u.lastLoginAt!.toLocal()),

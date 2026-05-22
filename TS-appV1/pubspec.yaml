@@ -1,7 +1,7 @@
 name: ts_xdv
 description: "Hệ thống TS-XDV"
 publish_to: 'none'
-version: 1.0.0+1
+version: 2.0.0+200
 
 environment:
   sdk: '>=3.1.0 <4.0.0'

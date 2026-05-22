@@ -30,6 +30,72 @@ export function createUsersRouter(pool) {
 
   r.use(auth);
 
+  /**
+   * SĐT nhân sự để gọi (KH, CSKH, …) — gộp staff_db (workshop-data) + users.phone trên server.
+   * Không trả mật khẩu; chỉ username, phone, name, role.
+   */
+  r.get('/dial-contacts', async (req, res) => {
+    try {
+      const actor = normRole(req.user.role);
+      const byUser = new Map();
+
+      const scopeId = req.user.xdv_id ? String(req.user.xdv_id) : 'global';
+      const blob = await pool.query(
+        `SELECT payload FROM workshop_data_blobs WHERE scope_id = $1 AND data_key = 'staff_db'`,
+        [scopeId],
+      );
+      if (blob.rowCount > 0) {
+        const payload = blob.rows[0].payload;
+        const list = Array.isArray(payload) ? payload : [];
+        for (const row of list) {
+          if (row && row.isActive === false) continue;
+          const username = String(row.username || '').trim();
+          const phone = String(row.phone || '').trim();
+          if (!username || !phone) continue;
+          byUser.set(username.toLowerCase(), {
+            username,
+            phone,
+            name: String(row.fullName || row.name || username).trim(),
+            role: String(row.role || '').trim(),
+          });
+        }
+      }
+
+      const vals = [];
+      let scopeExtra = '';
+      if (actor !== 'ADMIN') {
+        vals.push(req.user.xdv_id ?? null);
+        scopeExtra = ` AND u.xdv_id IS NOT DISTINCT FROM $${vals.length}`;
+      }
+      const users = await pool.query(
+        `
+        SELECT u.username, u.name, u.role, u.phone
+        FROM users u
+        WHERE u.is_active = true
+          AND u.phone IS NOT NULL
+          AND trim(u.phone) <> ''
+          ${scopeExtra}
+        `,
+        vals,
+      );
+      for (const row of users.rows) {
+        const username = String(row.username || '').trim();
+        const phone = String(row.phone || '').trim();
+        if (!username || !phone) continue;
+        byUser.set(username.toLowerCase(), {
+          username,
+          phone,
+          name: String(row.name || username).trim(),
+          role: String(row.role || '').trim(),
+        });
+      }
+
+      res.json([...byUser.values()]);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   /** Quản đốc / Giám đốc / Admin — danh sách KTV đang hoạt động để phân công. */
   r.get('/assignable-ktv', async (req, res) => {
     const actor = normRole(req.user.role);
@@ -46,7 +112,7 @@ export function createUsersRouter(pool) {
       }
       const result = await pool.query(
         `
-        SELECT u.id, u.username, u.name, u.role, u.is_active, u.created_at, u.xdv_id, u.last_login_at
+        SELECT u.id, u.username, u.name, u.role, u.is_active, u.created_at, u.xdv_id, u.last_login_at, u.phone
         FROM users u
         WHERE upper(trim(replace(u.role, ' ', '_'))) = 'KTV' AND u.is_active = true
         ${extra}
@@ -75,7 +141,7 @@ export function createUsersRouter(pool) {
       }
       const result = await pool.query(
         `
-        SELECT u.id, u.username, u.name, u.role, u.is_active, u.created_at, u.xdv_id, u.last_login_at
+        SELECT u.id, u.username, u.name, u.role, u.is_active, u.created_at, u.xdv_id, u.last_login_at, u.phone
         FROM users u
         WHERE u.is_active = true
           AND (
@@ -118,7 +184,7 @@ export function createUsersRouter(pool) {
 
         `
 
-        SELECT u.id, u.username, u.name, u.role, u.is_active, u.created_at, u.xdv_id, u.last_login_at, x.name AS xdv_name
+        SELECT u.id, u.username, u.name, u.role, u.is_active, u.created_at, u.xdv_id, u.last_login_at, u.phone, x.name AS xdv_name
 
         FROM users u
 
@@ -154,7 +220,7 @@ export function createUsersRouter(pool) {
 
     }
 
-    const { username, password, name, role, xdv_id } = req.body || {};
+    const { username, password, name, role, xdv_id, phone } = req.body || {};
 
     if (!username || !password || !name || !role) {
 
@@ -178,15 +244,17 @@ export function createUsersRouter(pool) {
 
       const ph = await hashPassword(String(password));
 
+      const phoneVal = phone != null && String(phone).trim() !== '' ? String(phone).trim() : null;
+
       const result = await pool.query(
 
-        `INSERT INTO users (username, password, password_hash, name, role, xdv_id)
+        `INSERT INTO users (username, password, password_hash, name, role, xdv_id, phone)
 
-         VALUES ($1, '', $2, $3, $4, $5)
+         VALUES ($1, '', $2, $3, $4, $5, $6)
 
-         RETURNING id, username, name, role, xdv_id`,
+         RETURNING id, username, name, role, xdv_id, phone`,
 
-        [username, ph, name, role, finalXdvId],
+        [username, ph, name, role, finalXdvId, phoneVal],
 
       );
 
@@ -208,7 +276,7 @@ export function createUsersRouter(pool) {
 
     const { id } = req.params;
 
-    const { name, role, xdv_id, password } = req.body || {};
+    const { name, role, xdv_id, password, phone } = req.body || {};
 
     try {
 
@@ -264,6 +332,14 @@ export function createUsersRouter(pool) {
 
       }
 
+      if (phone !== undefined) {
+
+        fields.push(`phone = $${n++}`);
+
+        vals.push(phone != null && String(phone).trim() !== '' ? String(phone).trim() : null);
+
+      }
+
       if (password !== undefined && String(password) !== '') {
 
         const ph = await hashPassword(String(password));
@@ -282,7 +358,7 @@ export function createUsersRouter(pool) {
 
       const result = await pool.query(
 
-        `UPDATE users SET ${fields.join(', ')} WHERE id = $${n} RETURNING id, username, name, role, xdv_id`,
+        `UPDATE users SET ${fields.join(', ')} WHERE id = $${n} RETURNING id, username, name, role, xdv_id, phone`,
 
         vals,
 

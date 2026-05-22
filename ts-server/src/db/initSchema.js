@@ -47,6 +47,7 @@ export async function initSchema(db) {
     'password_hash VARCHAR(255)',
     'last_login_at TIMESTAMP WITH TIME ZONE',
     'xdv_id UUID',
+    'phone VARCHAR(20)',
   ]) {
     try {
       await db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS ${col};`);

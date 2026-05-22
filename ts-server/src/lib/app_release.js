@@ -3,11 +3,11 @@
  */
 export const DEFAULT_APP_RELEASE = {
   /** Nhãn hiển thị: "V2.0", "V3.0"… */
-  version_label: 'V1.0',
+  version_label: 'V2.0',
   /** Semver máy chủ (mới hơn app cũ → bật dialog) */
-  version: '1.0.0',
+  version: '2.0.0',
   /** Số build tăng dần: V1=1, V2=200, V3=300… */
-  build_number: 1,
+  build_number: 200,
   message: '',
   download_url: '',
   download_url_web: '',
