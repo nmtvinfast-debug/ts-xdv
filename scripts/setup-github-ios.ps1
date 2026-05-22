@@ -23,7 +23,9 @@ if (-not (Test-Path ".git")) {
 git add -A
 git status --short
 $msg = "TS-XDV: Flutter app + server + GitHub iOS build workflow"
-git commit -m $msg 2>$null
+# Không cần git config global — dùng identity tạm cho commit
+$gitIdentity = @("-c", "user.name=TS-XDV", "-c", "user.email=ts-xdv@users.noreply.github.com")
+& git @gitIdentity commit -m $msg 2>$null
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Không có thay đổi mới hoặc đã commit trước đó."
 }
