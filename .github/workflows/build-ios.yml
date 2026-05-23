@@ -35,13 +35,17 @@ jobs:
         run: |
           set -e
           echo "=== build/ios tree ==="
-          find build/ios -maxdepth 5 -type f \( -name '*.ipa' -o -name 'Runner.app' \) 2>/dev/null || true
+          find build/ios \( -name '*.ipa' -o -name 'Runner.app' \) 2>/dev/null | head -40
           mkdir -p build/ios/ipa
           shopt -s nullglob
+          # Copy any IPA Flutter/Xcode already produced
+          while IFS= read -r f; do
+            cp -v "$f" build/ios/ipa/
+          done < <(find build/ios -name '*.ipa' ! -path 'build/ios/ipa/*')
           ipas=(build/ios/ipa/*.ipa)
           if [ ${#ipas[@]} -eq 0 ]; then
-            APP="build/ios/iphoneos/Runner.app"
-            if [ -d "$APP" ]; then
+            APP="$(find build/ios -type d -name 'Runner.app' | head -1)"
+            if [ -n "$APP" ] && [ -d "$APP" ]; then
               echo "Pack unsigned IPA from $APP"
               rm -rf Payload
               mkdir Payload
@@ -52,7 +56,8 @@ jobs:
           fi
           ipas=(build/ios/ipa/*.ipa)
           if [ ${#ipas[@]} -eq 0 ]; then
-            echo "ERROR: no .ipa in build/ios/ipa"
+            echo "ERROR: no Runner.app and no .ipa under build/ios"
+            find build/ios -maxdepth 6 2>/dev/null | head -80
             exit 1
           fi
           ls -la build/ios/ipa/
