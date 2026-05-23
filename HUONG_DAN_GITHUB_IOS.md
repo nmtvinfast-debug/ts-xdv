@@ -51,8 +51,13 @@ Lần đầu Git hỏi đăng nhập GitHub — dùng **Personal Access Token** 
 | Cài thẳng lên iPhone bằng file tải về | **Không** (Apple bắt buộc ký app) |
 | Cài cho nhân viên (TestFlight / App Store) | Cần **Apple Developer 99 USD/năm** + Mac để upload |
 
-**Cách dùng ngay không cần iOS native:** bản Web  
+### Khách hàng dùng iPhone (khuyến nghị)
+
+Gửi link **Web** — mở Safari, đăng nhập, **Chia sẻ → Thêm vào Màn hình chính** (giống app):
+
 https://ts-server.fly.dev/releases/web/
+
+Đây là cách ổn định nhất khi chưa có tài khoản Apple Developer để ký IPA.
 
 ## Tự động build khi push code
 

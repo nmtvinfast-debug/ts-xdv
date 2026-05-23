@@ -39,7 +39,7 @@ jobs:
       - name: CocoaPods install
         run: |
           cd ios
-          pod install
+          pod install --repo-update
 
       - name: Build IPA (no codesign)
         run: flutter build ipa --release --no-codesign
