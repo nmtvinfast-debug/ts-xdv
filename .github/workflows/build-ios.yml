@@ -31,10 +31,10 @@ jobs:
       - name: Flutter pub get
         run: flutter pub get
 
-      - name: Generate app icons (placeholder)
+      - name: Generate app icons (Node — không cần Pillow)
         run: |
-          pip3 install pillow
-          python3 scripts/generate_ios_icons.py
+          node scripts/generate_ios_icons.mjs
+          ls -la ios/Runner/Assets.xcassets/AppIcon.appiconset/
 
       - name: CocoaPods install
         run: |
@@ -50,4 +50,11 @@ jobs:
           name: ts-xdv-ios-ipa
           path: TS-appV1/build/ios/ipa/*.ipa
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 30
+
+      - name: Summary
+        if: success()
+        run: |
+          echo "## iOS build OK" >> $GITHUB_STEP_SUMMARY
+          echo "Tải **Artifacts → ts-xdv-ios-ipa** trên trang run này." >> $GITHUB_STEP_SUMMARY
+          echo "Lưu ý: IPA --no-codesign không cài thẳng lên iPhone; KH dùng Web hoặc TestFlight sau khi ký Apple." >> $GITHUB_STEP_SUMMARY

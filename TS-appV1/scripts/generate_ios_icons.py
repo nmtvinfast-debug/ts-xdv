@@ -16,6 +16,7 @@ SIZES = {
     "Icon-App-29x29@1x.png": (29, 29),
     "Icon-App-29x29@2x.png": (58, 58),
     "Icon-App-29x29@3x.png": (87, 87),
+    "Icon-App-40x40@1x.png": (40, 40),
     "Icon-App-40x40@2x.png": (80, 80),
     "Icon-App-40x40@3x.png": (120, 120),
     "Icon-App-60x60@2x.png": (120, 120),
