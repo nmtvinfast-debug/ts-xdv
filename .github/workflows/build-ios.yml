@@ -31,6 +31,25 @@ jobs:
       - name: Build IPA (no codesign)
         run: flutter build ipa --release --no-codesign
 
+      - name: Locate or pack IPA
+        run: |
+          set -e
+          echo "=== build/ios tree ==="
+          find build/ios -maxdepth 4 -type f \( -name '*.ipa' -o -name 'Runner.app' \) 2>/dev/null || true
+          mkdir -p build/ios/ipa
+          if ! compgen -G "build/ios/ipa/*.ipa" > /dev/null; then
+            APP="build/ios/iphoneos/Runner.app"
+            if [ -d "$APP" ]; then
+              echo "Pack unsigned IPA from $APP"
+              rm -rf Payload
+              mkdir Payload
+              cp -R "$APP" Payload/
+              (cd . && zip -qr build/ios/ipa/ts-xdv-unsigned.ipa Payload)
+              rm -rf Payload
+            fi
+          fi
+          ls -la build/ios/ipa/
+
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
