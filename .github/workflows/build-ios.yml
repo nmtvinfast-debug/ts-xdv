@@ -35,26 +35,36 @@ jobs:
         run: |
           set -e
           echo "=== build/ios tree ==="
-          find build/ios -maxdepth 4 -type f \( -name '*.ipa' -o -name 'Runner.app' \) 2>/dev/null || true
+          find build/ios -maxdepth 5 -type f \( -name '*.ipa' -o -name 'Runner.app' \) 2>/dev/null || true
           mkdir -p build/ios/ipa
-          if ! compgen -G "build/ios/ipa/*.ipa" > /dev/null; then
+          shopt -s nullglob
+          ipas=(build/ios/ipa/*.ipa)
+          if [ ${#ipas[@]} -eq 0 ]; then
             APP="build/ios/iphoneos/Runner.app"
             if [ -d "$APP" ]; then
               echo "Pack unsigned IPA from $APP"
               rm -rf Payload
               mkdir Payload
               cp -R "$APP" Payload/
-              (cd . && zip -qr build/ios/ipa/ts-xdv-unsigned.ipa Payload)
+              zip -qr build/ios/ipa/ts-xdv-unsigned.ipa Payload
               rm -rf Payload
             fi
           fi
+          ipas=(build/ios/ipa/*.ipa)
+          if [ ${#ipas[@]} -eq 0 ]; then
+            echo "ERROR: no .ipa in build/ios/ipa"
+            exit 1
+          fi
           ls -la build/ios/ipa/
+          mkdir -p "${GITHUB_WORKSPACE}/ipa-artifact"
+          cp -v build/ios/ipa/*.ipa "${GITHUB_WORKSPACE}/ipa-artifact/"
+          ls -la "${GITHUB_WORKSPACE}/ipa-artifact/"
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
           name: ts-xdv-ios-ipa
-          path: TS-appV1/build/ios/ipa/
+          path: ipa-artifact/
           if-no-files-found: error
           retention-days: 30
 
