@@ -39,9 +39,12 @@ Lần đầu Git hỏi đăng nhập GitHub — dùng **Personal Access Token** 
 
 ## Bước 4: Tải file .ipa
 
-1. Mở run vừa xong
-2. Cuối trang → **Artifacts** → **ts-xdv-ios-ipa**
-3. Giải nén → có file `.ipa`
+1. Vào https://github.com/nmtvinfast-debug/ts-xdv/actions → workflow **Build iOS**
+2. Mở run **xanh (success)** mới nhất
+3. Cuối trang → **Artifacts** → **ts-xdv-ios-ipa** → tải ZIP → giải nén → file `.ipa` (thường `ts-xdv-unsigned.ipa`)
+
+Run build thành công gần nhất (tham khảo):  
+https://github.com/nmtvinfast-debug/ts-xdv/actions/runs/26327221374
 
 ## Giới hạn quan trọng
 
