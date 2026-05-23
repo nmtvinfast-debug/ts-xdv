@@ -11,7 +11,7 @@ on:
 jobs:
   ios:
     runs-on: macos-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     defaults:
       run:
         working-directory: TS-appV1
@@ -23,23 +23,10 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Install CocoaPods
+      - name: Prepare iOS project (Pods + Xcode)
         run: |
-          sudo gem install cocoapods
-          pod --version
-
-      - name: Flutter pub get
-        run: flutter pub get
-
-      - name: Generate app icons (Node — không cần Pillow)
-        run: |
-          node scripts/generate_ios_icons.mjs
-          ls -la ios/Runner/Assets.xcassets/AppIcon.appiconset/
-
-      - name: CocoaPods install
-        run: |
-          cd ios
-          pod install --repo-update
+          chmod +x scripts/ios_ci_prepare.sh
+          bash scripts/ios_ci_prepare.sh
 
       - name: Build IPA (no codesign)
         run: flutter build ipa --release --no-codesign
@@ -57,4 +44,4 @@ jobs:
         run: |
           echo "## iOS build OK" >> $GITHUB_STEP_SUMMARY
           echo "Tải **Artifacts → ts-xdv-ios-ipa** trên trang run này." >> $GITHUB_STEP_SUMMARY
-          echo "Lưu ý: IPA --no-codesign không cài thẳng lên iPhone; KH dùng Web hoặc TestFlight sau khi ký Apple." >> $GITHUB_STEP_SUMMARY
+          echo "IPA chưa ký Apple **không cài** trực tiếp lên iPhone khách. KH iPhone: dùng Web https://ts-server.fly.dev/releases/web/" >> $GITHUB_STEP_SUMMARY
