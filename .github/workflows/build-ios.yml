@@ -54,7 +54,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ts-xdv-ios-ipa
-          path: TS-appV1/build/ios/ipa/*.ipa
+          path: TS-appV1/build/ios/ipa/
           if-no-files-found: error
           retention-days: 30
 
